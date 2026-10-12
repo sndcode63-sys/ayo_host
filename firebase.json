@@ -1,0 +1,1 @@
+{"flutter":{"platforms":{"android":{"default":{"projectId":"ayo-backend","appId":"1:590615425619:android:f46b2a84a2e15693b4cca6","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"ayo-backend","configurations":{"android":"1:590615425619:android:f46b2a84a2e15693b4cca6","ios":"1:590615425619:ios:27a23a88c6ee430eb4cca6"}}}}}}

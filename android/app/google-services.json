@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "590615425619",
+    "project_id": "ayo-backend",
+    "storage_bucket": "ayo-backend.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:590615425619:android:f46b2a84a2e15693b4cca6",
+        "android_client_info": {
+          "package_name": "com.example.ayo_host"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAYJmslgzrDDgbHilAn2NAVuDzrRzr7IKE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
