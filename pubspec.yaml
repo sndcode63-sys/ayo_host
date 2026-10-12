@@ -33,6 +33,7 @@
     # Firebase Push Notifications
     firebase_messaging: ^16.0.3
 
+
     # Local Notifications
     flutter_local_notifications: ^19.5.0
 
