@@ -92,7 +92,7 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                           const Icon(Icons.star_rounded,
                               size: 13, color: AppColors.warning),
                           Text(
-                            ' ${profile?.rating.toStringAsFixed(2) ?? '4.98'} (${profile?.reviewCount ?? 86} reviews)',
+                            ' ${profile?.rating?.toStringAsFixed(2) ?? '4.98'} (${profile?.reviewCount ?? 86} reviews)',
                             style: AppText.body.copyWith(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
@@ -139,7 +139,7 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                       Text('RESPONSE RATE', style: AppText.captionCaps),
                       const SizedBox(height: 3),
                       Text(
-                        '${profile?.responseRate.toStringAsFixed(0) ?? '99'}% · <5 min',
+                        '${profile?.responseRate?.toStringAsFixed(0) ?? '99'}% · <5 min',
                         style: AppText.sectionTitle.copyWith(fontSize: 13),
                       ),
                     ],

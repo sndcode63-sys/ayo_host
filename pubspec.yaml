@@ -20,6 +20,13 @@
 
     # API & Networking
     http: ^1.2.2
+    dio: ^5.7.0
+
+    # Secure Storage
+    flutter_secure_storage: ^9.2.2
+
+    # Logging
+    logger: ^2.4.0
 
     # Date & Time Formatting
     intl: ^0.20.2
@@ -35,7 +42,7 @@
 
 
     # Local Notifications
-    flutter_local_notifications: ^19.5.0
+#    flutter_local_notifications: ^19.5.0
 
   dev_dependencies:
     flutter_test:

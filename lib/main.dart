@@ -16,18 +16,19 @@ import 'ui/screens/onboarding/payout_setup_screen.dart';
 import 'ui/screens/onboarding/vehicle_details_screen.dart';
 import 'ui/screens/onboarding/vehicle_photos_screen.dart';
 
-void main() {
-  final apiClient = ApiClient();
-  runApp(AyoHostApp(apiClient: apiClient));
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await ApiClient.initialize();
+  runApp(const AyoHostApp());
 }
 
 class AyoHostApp extends StatelessWidget {
-  const AyoHostApp({super.key, required this.apiClient});
-
-  final ApiClient apiClient;
+  const AyoHostApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final apiClient = ApiClient.instance;
+
     return MultiProvider(
       providers: [
         Provider<ApiClient>.value(value: apiClient),

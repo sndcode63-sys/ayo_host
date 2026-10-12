@@ -1,66 +1,250 @@
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
-
+import 'package:dio/dio.dart';
 import '../../core/config/api_config.dart';
+import '../../core/services/logger_service.dart';
+import '../../core/services/secure_storage_service.dart';
+import '../../core/services/toast_service.dart';
 
-/// Thin wrapper around [http.Client]. All repositories call the backend
-/// through this client, so auth headers, base URL, retries and error
-/// mapping live in exactly one place.
+/// Dio-based API client with interceptors for logging, auth, and error handling.
+/// All repositories call the backend through this client.
 class ApiClient {
-  ApiClient({http.Client? client}) : _client = client ?? http.Client();
+  ApiClient._();
 
-  final http.Client _client;
-  String? _authToken;
+  static final ApiClient _instance = ApiClient._();
+  static ApiClient get instance => _instance;
 
-  set authToken(String? token) => _authToken = token;
+  late final Dio _dio;
 
-  Map<String, String> get _headers => {
+  static Future<void> initialize() async {
+    _instance._dio = Dio(BaseOptions(
+      baseUrl: ApiConfig.baseUrl,
+      connectTimeout: ApiConfig.timeout,
+      receiveTimeout: ApiConfig.timeout,
+      headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        if (_authToken != null) 'Authorization': 'Bearer $_authToken',
-      };
+      },
+    ));
 
-  Uri _uri(String path, [Map<String, String>? query]) =>
-      Uri.parse('${ApiConfig.baseUrl}$path').replace(queryParameters: query);
+    _instance._dio.interceptors.add(_LoggingInterceptor());
+    _instance._dio.interceptors.add(_AuthInterceptor());
+    _instance._dio.interceptors.add(_ErrorInterceptor());
 
-  Future<Map<String, dynamic>> get(String path,
-      {Map<String, String>? query}) async {
-    final res = await _client
-        .get(_uri(path, query), headers: _headers)
-        .timeout(ApiConfig.timeout);
-    return _decode(res);
+    LoggerService.info('ApiClient initialized with base URL: ${ApiConfig.baseUrl}');
   }
 
-  Future<Map<String, dynamic>> post(String path,
-      {Map<String, dynamic>? body}) async {
-    final res = await _client
-        .post(_uri(path), headers: _headers, body: jsonEncode(body ?? {}))
-        .timeout(ApiConfig.timeout);
-    return _decode(res);
+  Dio get dio => _dio;
+
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    try {
+      final response = await _dio.get(
+        path,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      rethrow;
+    }
   }
 
-  Future<Map<String, dynamic>> put(String path,
-      {Map<String, dynamic>? body}) async {
-    final res = await _client
-        .put(_uri(path), headers: _headers, body: jsonEncode(body ?? {}))
-        .timeout(ApiConfig.timeout);
-    return _decode(res);
+  Future<Map<String, dynamic>> post(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    try {
+      final response = await _dio.post(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      rethrow;
+    }
   }
 
-  Map<String, dynamic> _decode(http.Response res) {
-    final body = res.body.isNotEmpty
-        ? jsonDecode(res.body) as Map<String, dynamic>
-        : <String, dynamic>{};
-    if (res.statusCode >= 200 && res.statusCode < 300) return body;
-    throw ApiException(res.statusCode, body['message'] ?? 'Request failed');
+  Future<Map<String, dynamic>> put(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    try {
+      final response = await _dio.put(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> delete(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    try {
+      final response = await _dio.delete(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+  }) async {
+    try {
+      final response = await _dio.patch(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: options,
+      );
+      return _handleResponse(response);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Map<String, dynamic> _handleResponse(Response response) {
+    if (response.statusCode! >= 200 && response.statusCode! < 300) {
+      if (response.data is Map<String, dynamic>) {
+        return response.data as Map<String, dynamic>;
+      }
+      return {'data': response.data};
+    }
+    throw ApiException(
+      response.statusCode ?? 0,
+      response.data?['error']?['message'] ?? 'Request failed',
+      response.data?['error']?['code'],
+    );
+  }
+}
+
+class _LoggingInterceptor extends Interceptor {
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    LoggerService.debug('API Request: ${options.method} ${options.uri}');
+    if (options.data != null) {
+      LoggerService.debug('Request Body: ${options.data}');
+    }
+    if (options.queryParameters.isNotEmpty) {
+      LoggerService.debug('Query Params: ${options.queryParameters}');
+    }
+    super.onRequest(options, handler);
+  }
+
+  @override
+  void onResponse(Response response, ResponseInterceptorHandler handler) {
+    LoggerService.info(
+      'API Response: ${response.statusCode} ${response.requestOptions.uri}',
+    );
+    super.onResponse(response, handler);
+  }
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    LoggerService.error(
+      'API Error: ${err.requestOptions.method} ${err.requestOptions.uri}',
+      error: err,
+    );
+    super.onError(err, handler);
+  }
+}
+
+class _AuthInterceptor extends Interceptor {
+  @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
+    final token = await SecureStorageService.getAccessToken();
+    if (token != null) {
+      options.headers['Authorization'] = 'Bearer $token';
+    }
+    super.onRequest(options, handler);
+  }
+}
+
+class _ErrorInterceptor extends Interceptor {
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    String errorMessage = 'Something went wrong';
+
+    if (err.response != null) {
+      final responseData = err.response!.data;
+      if (responseData is Map<String, dynamic>) {
+        if (responseData.containsKey('error')) {
+          final error = responseData['error'] as Map<String, dynamic>?;
+          errorMessage = error?['message'] ?? errorMessage;
+        } else if (responseData.containsKey('message')) {
+          errorMessage = responseData['message'] as String;
+        }
+      }
+    } else if (err.type == DioExceptionType.connectionTimeout ||
+        err.type == DioExceptionType.receiveTimeout) {
+      errorMessage = 'Connection timeout. Please check your internet connection.';
+    } else if (err.type == DioExceptionType.connectionError) {
+      errorMessage = 'No internet connection. Please check your network.';
+    }
+
+    switch (err.type) {
+      case DioExceptionType.badResponse:
+        final statusCode = err.response?.statusCode;
+        if (statusCode == 401) {
+          errorMessage = 'Session expired. Please login again.';
+          SecureStorageService.clearAuthData();
+        } else if (statusCode == 403) {
+          errorMessage = 'Access denied. You don\'t have permission.';
+        } else if (statusCode == 404) {
+          errorMessage = 'Resource not found.';
+        } else if (statusCode == 422) {
+          errorMessage = 'Invalid data provided.';
+        } else if (statusCode! >= 500) {
+          errorMessage = 'Server error. Please try again later.';
+        }
+        break;
+      default:
+        break;
+    }
+
+    ToastService.showError(errorMessage);
+
+    handler.next(
+      DioException(
+        requestOptions: err.requestOptions,
+        error: errorMessage,
+        type: err.type,
+        response: err.response,
+      ),
+    );
   }
 }
 
 class ApiException implements Exception {
-  ApiException(this.statusCode, this.message);
   final int statusCode;
   final String message;
+  final String? code;
+
+  ApiException(this.statusCode, this.message, [this.code]);
 
   @override
   String toString() => 'ApiException($statusCode): $message';
