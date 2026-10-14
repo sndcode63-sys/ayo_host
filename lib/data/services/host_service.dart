@@ -194,4 +194,101 @@ class HostService {
       rethrow;
     }
   }
+
+  static Future<List<Vehicle>> getMyVehicles() async {
+    try {
+      LoggerService.info('Fetching host vehicles from /vehicles/mine');
+      final response = await ApiClient.instance.get(ApiConfig.vehiclesMine);
+      
+      final dynamic raw = response['data'];
+      List items = [];
+      if (raw is Map && raw['items'] is List) {
+        items = raw['items'];
+      } else if (raw is List) {
+        items = raw;
+      }
+      
+      return items.map((e) => Vehicle.fromJson(e as Map<String, dynamic>)).toList();
+    } catch (e) {
+      LoggerService.error('Failed to fetch host vehicles', error: e);
+      return [];
+    }
+  }
+
+  static Future<Map<String, dynamic>> createVehicle(Map<String, dynamic> data) async {
+    try {
+      LoggerService.info('Creating vehicle listing: ${data['make']} ${data['model']}');
+      final response = await ApiClient.instance.post(ApiConfig.vehicles, data: data);
+      ToastService.showSuccess('Vehicle submitted for review!');
+      return response['data'] as Map<String, dynamic>;
+    } catch (e) {
+      LoggerService.error('Failed to create vehicle', error: e);
+      rethrow;
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateVehicle(String id, Map<String, dynamic> data) async {
+    try {
+      LoggerService.info('Updating vehicle: $id');
+      final response = await ApiClient.instance.dio.patch(
+        '${ApiConfig.baseUrl}${ApiConfig.vehicleById(id)}',
+        data: data,
+      );
+      return response.data['data'] as Map<String, dynamic>;
+    } catch (e) {
+      LoggerService.error('Failed to update vehicle', error: e);
+      rethrow;
+    }
+  }
+
+  static Future<Map<String, dynamic>> getDocumentStatus(String vehicleId) async {
+    try {
+      LoggerService.info('Fetching document status for vehicle: $vehicleId');
+      final response = await ApiClient.instance.get(ApiConfig.vehicleDocumentsStatus(vehicleId));
+      return response['data'] as Map<String, dynamic>;
+    } catch (e) {
+      LoggerService.error('Failed to get document status', error: e);
+      rethrow;
+    }
+  }
+
+  static Future<void> confirmDocument({
+    required String vehicleId,
+    required String type,
+    required String url,
+    String? fileName,
+    int? fileSizeBytes,
+    String? expiryDate,
+  }) async {
+    try {
+      LoggerService.info('Confirming document $type for vehicle: $vehicleId');
+      final data = <String, dynamic>{
+        'type': type,
+        'url': url,
+      };
+      if (fileName != null) data['file_name'] = fileName;
+      if (fileSizeBytes != null) data['file_size_bytes'] = fileSizeBytes;
+      if (expiryDate != null) data['expiry_date'] = expiryDate;
+
+      await ApiClient.instance.post(
+        ApiConfig.vehicleDocumentsConfirm(vehicleId),
+        data: data,
+      );
+      ToastService.showSuccess('$type document saved!');
+    } catch (e) {
+      LoggerService.error('Failed to confirm document', error: e);
+      rethrow;
+    }
+  }
+
+  static Future<void> submitVehicleForReview(String vehicleId) async {
+    try {
+      LoggerService.info('Submitting vehicle for review: $vehicleId');
+      await ApiClient.instance.post(ApiConfig.vehicleSubmit(vehicleId));
+      ToastService.showSuccess('Vehicle submitted for review!');
+    } catch (e) {
+      LoggerService.error('Failed to submit vehicle', error: e);
+      rethrow;
+    }
+  }
 }

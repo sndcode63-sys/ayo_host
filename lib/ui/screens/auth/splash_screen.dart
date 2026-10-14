@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../data/services/auth_service.dart';
+import '../../../data/services/host_service.dart';
+import '../dashboard/main_shell.dart';
+import '../onboarding/host_profile_setup_screen.dart';
+import '../onboarding/payout_setup_screen.dart';
 import 'sign_in_screen.dart';
 
 /// Red splash shown at cold start; auto-routes to Sign In.
@@ -30,9 +35,32 @@ class _SplashScreenState extends State<SplashScreen>
     _scale = CurvedAnimation(parent: _controller, curve: Curves.easeOutBack);
     _fade = CurvedAnimation(parent: _controller, curve: Curves.easeIn);
 
-    Future.delayed(const Duration(milliseconds: 2200), () {
+    Future.delayed(const Duration(milliseconds: 1800), () async {
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, SignInScreen.route);
+      
+      final isAuth = await AuthService.isAuthenticated();
+
+      if (!mounted) return;
+
+      if (!isAuth) {
+        Navigator.pushReplacementNamed(context, SignInScreen.route);
+        return;
+      }
+
+      try {
+        final status = await HostService.getOnboardingStatus();
+        if (!mounted) return;
+        if (!status.profileCompleted) {
+          Navigator.pushReplacementNamed(context, HostProfileSetupScreen.route);
+        } else if (!status.payoutCompleted) {
+          Navigator.pushReplacementNamed(context, PayoutSetupScreen.route);
+        } else {
+          Navigator.pushReplacementNamed(context, MainShell.route);
+        }
+      } catch (e) {
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, MainShell.route);
+      }
     });
   }
 

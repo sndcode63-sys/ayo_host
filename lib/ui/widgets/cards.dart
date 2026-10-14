@@ -96,16 +96,23 @@ class StatusPill extends StatelessWidget {
     switch (status) {
       case 'On Trip':
       case 'Required':
+      case 'Danger':
+      case 'REJECTED':
         return StatusPill(
             key: key, label: status, kind: StatusKind.danger);
       case 'Available':
       case 'Uploaded':
       case 'Active':
-        return StatusPill(
-            key: key, label: status, kind: StatusKind.neutral);
+      case 'ACTIVE':
       case 'Verified':
         return StatusPill(
             key: key, label: status, kind: StatusKind.success);
+      case 'PENDING_REVIEW':
+        return StatusPill(
+            key: key, label: 'Pending Review', kind: StatusKind.neutral);
+      case 'DRAFT':
+        return StatusPill(
+            key: key, label: 'Draft', kind: StatusKind.neutral);
       default:
         return StatusPill(
             key: key, label: status, kind: StatusKind.neutral);
@@ -158,11 +165,12 @@ class SelectChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = InkWell(
+    return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
       child: Container(
         height: 38,
+        width: expanded ? double.infinity : null,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: selected ? AppColors.primarySoft : AppColors.card,
@@ -182,19 +190,21 @@ class SelectChip extends StatelessWidget {
                   color: selected ? AppColors.primary : AppColors.textMuted),
               const SizedBox(width: 5),
             ],
-            Text(
-              label,
-              style: AppText.body.copyWith(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: selected ? AppColors.primary : AppColors.textSecondary,
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: AppText.body.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? AppColors.primary : AppColors.textSecondary,
+                ),
               ),
             ),
           ],
         ),
       ),
     );
-    return expanded ? Expanded(child: child) : child;
   }
 }
 

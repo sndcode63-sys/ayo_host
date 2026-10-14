@@ -1,9 +1,7 @@
 class ApiConfig {
   ApiConfig._();
 
-  /// Base URL from API documentation
-  /// Live: https://costly-internidal-moses.ngrok-free.dev/api/v1
-  /// Local: http://localhost:3000/api/v1
+
   static const String baseUrl = 'https://costly-internidal-moses.ngrok-free.dev/api/v1';
   static const bool useMockData = false;
   static const Duration timeout = Duration(seconds: 30);
@@ -27,7 +25,16 @@ class ApiConfig {
   static const String dashboard = '/host/dashboard';
 
   // Vehicles Endpoints
-  static const String vehicles = '/host/vehicles';
+  static const String vehicles = '/vehicles';
+  static const String vehiclesMine = '/vehicles/mine';
+  static String vehicleById(String id) => '/vehicles/$id';
+  static String vehicleDocumentsStatus(String id) => '/vehicles/$id/documents-status';
+  static String vehicleDocumentsConfirm(String id) => '/vehicles/$id/documents/confirm';
+  static String vehiclePhotosConfirm(String id) => '/vehicles/$id/photos/confirm';
+  static String vehicleSubmit(String id) => '/vehicles/$id/submit';
   static const String documents = '/host/vehicles/documents';
   static const String payout = '/host/payout';
+
+  // Trips & Handover
+  static String tripHandover(String tripId) => '/trips/$tripId/start-handover';
 }

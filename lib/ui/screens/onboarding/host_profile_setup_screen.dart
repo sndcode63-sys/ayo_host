@@ -7,7 +7,7 @@ import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/chrome.dart';
 import '../../widgets/inputs.dart';
-import 'vehicle_details_screen.dart';
+import 'payout_setup_screen.dart';
 
 /// AYO Create Profile — Host Profile Setup (Step 1 of 2).
 class HostProfileSetupScreen extends StatefulWidget {
@@ -20,13 +20,14 @@ class HostProfileSetupScreen extends StatefulWidget {
 }
 
 class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
-  final _firstName = TextEditingController();
-  final _lastName = TextEditingController();
+  final _firstName = TextEditingController(text: 'Rohit');
+  final _lastName = TextEditingController(text: 'Kumar');
   final _email = TextEditingController();
-  final _dob = TextEditingController();
-  final _city = TextEditingController();
+  final _dob = TextEditingController(text: '1998-05-15');
+  final _city = TextEditingController(text: 'Bengaluru');
   final _phone = TextEditingController();
-  final _bio = TextEditingController();
+  final _bio = TextEditingController(text: 'Bike & car host on Ayo platform');
+  final String _avatarKey = 'avatars/default_host.jpg';
 
   @override
   void dispose() {
@@ -45,17 +46,23 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
   }
 
   Future<void> _continue() async {
+    if (_firstName.text.trim().isEmpty || _lastName.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your first and last name')),
+      );
+      return;
+    }
+
     final ok = await context.read<ProfileController>().save({
-      'firstName': _firstName.text.trim(),
-      'lastName': _lastName.text.trim(),
-      'email': _email.text.trim(),
+      'first_name': _firstName.text.trim(),
+      'last_name': _lastName.text.trim(),
       'dob': _dob.text.trim(),
       'city': _city.text.trim(),
-      'phone': _phone.text.trim(),
       'bio': _bio.text.trim(),
+      'avatar_url': _avatarKey,
     });
     if (mounted && ok) {
-      Navigator.pushNamed(context, VehicleDetailsScreen.route);
+      Navigator.pushReplacementNamed(context, PayoutSetupScreen.route);
     }
   }
 

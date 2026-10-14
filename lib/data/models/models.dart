@@ -80,9 +80,10 @@ class Vehicle {
   final String transmission;
   final String bodyType;
   final int batteryPercent;
-  final String status; // On Trip / Available / Draft
+  final String status; // ACTIVE / PENDING_REVIEW / DRAFT / REJECTED
   final String? imageUrl;
   final double dailyRate;
+  final String? address;
 
   const Vehicle({
     required this.id,
@@ -97,25 +98,45 @@ class Vehicle {
     required this.status,
     required this.dailyRate,
     this.imageUrl,
+    this.address,
   });
 
   String get name => '$make $model';
-  bool get isOnTrip => status == 'On Trip';
+  bool get isOnTrip => status == 'On Trip' || status == 'ACTIVE';
 
-  factory Vehicle.fromJson(Map<String, dynamic> json) => Vehicle(
-        id: json['id'] ?? '',
-        make: json['make'] ?? '',
-        model: json['model'] ?? '',
-        year: json['year'] ?? 0,
-        plate: json['plate'] ?? '',
-        state: json['state'] ?? '',
-        transmission: json['transmission'] ?? '',
-        bodyType: json['bodyType'] ?? '',
-        batteryPercent: json['batteryPercent'] ?? 0,
-        status: json['status'] ?? 'Draft',
-        dailyRate: (json['dailyRate'] ?? 0).toDouble(),
-        imageUrl: json['imageUrl'],
-      );
+  factory Vehicle.fromJson(Map<String, dynamic> json) {
+    // If daily_rate is in paise (e.g. 1500000), convert to Rupees (1500.0)
+    double rate = 0;
+    if (json['daily_rate'] != null) {
+      final rawRate = json['daily_rate'];
+      if (rawRate is num) {
+        rate = rawRate > 10000 ? (rawRate / 100.0) : rawRate.toDouble();
+      }
+    } else if (json['dailyRate'] != null) {
+      rate = (json['dailyRate'] as num).toDouble();
+    }
+
+    String? img = json['cover_photo_url'] ?? json['imageUrl'];
+    if (img == null && json['photos'] != null && (json['photos'] as List).isNotEmpty) {
+      img = json['photos'][0].toString();
+    }
+
+    return Vehicle(
+      id: json['id'] ?? '',
+      make: json['make'] ?? '',
+      model: json['model'] ?? '',
+      year: json['year'] ?? 2024,
+      plate: json['registration_number'] ?? json['plate'] ?? '',
+      state: json['state'] ?? '',
+      transmission: json['transmission'] ?? 'Automatic',
+      bodyType: json['body_type'] ?? json['bodyType'] ?? 'Car',
+      batteryPercent: json['batteryPercent'] ?? 88,
+      status: json['status'] ?? 'DRAFT',
+      dailyRate: rate,
+      imageUrl: img,
+      address: json['address'],
+    );
+  }
 }
 
 class DashboardStats {

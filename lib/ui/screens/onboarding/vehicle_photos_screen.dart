@@ -82,7 +82,6 @@ class VehiclePhotosScreen extends StatelessWidget {
                   SelectChip(
                     label: label,
                     icon: icon,
-                    expanded: true,
                     selected: ob.bodyType == label || (label == 'EV' && ob.bodyType == 'Electric'),
                     onTap: () =>
                         context.read<OnboardingController>().setBodyType(label),

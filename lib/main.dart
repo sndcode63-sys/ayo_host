@@ -15,9 +15,20 @@ import 'ui/screens/onboarding/host_profile_setup_screen.dart';
 import 'ui/screens/onboarding/payout_setup_screen.dart';
 import 'ui/screens/onboarding/vehicle_details_screen.dart';
 import 'ui/screens/onboarding/vehicle_photos_screen.dart';
+import 'ui/widgets/toast.dart';
+
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e) {
+    debugPrint('Firebase init error: $e');
+  }
   await ApiClient.initialize();
   runApp(const AyoHostApp());
 }
@@ -48,6 +59,7 @@ class AyoHostApp extends StatelessWidget {
       child: MaterialApp(
         title: 'AYO Host',
         debugShowCheckedModeBanner: false,
+        scaffoldMessengerKey: AppToast.messengerKey,
         theme: AppTheme.light,
         initialRoute: SplashScreen.route,
         routes: {

@@ -6,39 +6,11 @@ import '../services/host_service.dart';
 
 /// Auth + host profile calls.
 class AuthRepository {
-  AuthRepository(this._api);
-  final ApiClient _api;
-
-  Future<void> requestOtp(String phone) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 600));
-      return;
-    }
-    await _api.post('/auth/otp/request', data: {'phone': phone});
-  }
-
-  Future<HostProfile> verifyOtp(String phone, String code) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 800));
-      return MockData.host;
-    }
-    final res = await _api
-        .post('/auth/otp/verify', data: {'phone': phone, 'code': code});
-    return HostProfile.fromJson(res['host']);
-  }
-
-  Future<HostProfile> socialSignIn(String provider) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 800));
-      return MockData.host;
-    }
-    final res = await _api.post('/auth/social', data: {'provider': provider});
-    return HostProfile.fromJson(res['host']);
-  }
+  AuthRepository([ApiClient? _]);
 
   Future<AuthResponse> exchangeFirebaseToken({
     required String idToken,
-    String? role,
+    String role = 'HOST',
     bool consentAccepted = true,
     String consentVersion = '1.0',
   }) async {
@@ -49,6 +21,25 @@ class AuthRepository {
       consentVersion: consentVersion,
     );
   }
+
+  Future<AuthResponse> devMockExchange({
+    required String phone,
+    String role = 'HOST',
+  }) async {
+    final mockUid = 'host_${phone.replaceAll(RegExp(r'[^0-9]'), '')}';
+    final mockIdToken = 'mock:$mockUid:$phone';
+    return await exchangeFirebaseToken(
+      idToken: mockIdToken,
+      role: role,
+      consentAccepted: true,
+      consentVersion: '1.0',
+    );
+  }
+
+  Future<OnboardingStatus> getOnboardingStatus() async {
+    return await HostService.getOnboardingStatus();
+  }
+
 
   Future<void> logout() async {
     await AuthService.logout();
@@ -78,10 +69,7 @@ class HostRepository {
       await Future.delayed(const Duration(milliseconds: 500));
       return MockData.vehicles;
     }
-    final res = await _api.get(ApiConfig.vehicles);
-    return (res['items'] as List)
-        .map((e) => Vehicle.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return await HostService.getMyVehicles();
   }
 
   Future<HostProfile> fetchProfile() async {
@@ -89,16 +77,22 @@ class HostRepository {
       await Future.delayed(const Duration(milliseconds: 400));
       return MockData.host;
     }
-    final res = await _api.get(ApiConfig.hostProfile);
-    return HostProfile.fromJson(res);
+    return await HostService.getHostProfile();
   }
 
-  Future<void> saveProfile(Map<String, dynamic> payload) async {
+  Future<HostProfile> saveProfile(Map<String, dynamic> payload) async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 600));
-      return;
+      return MockData.host;
     }
-    await _api.put(ApiConfig.hostProfile, data: payload);
+    return await HostService.saveHostProfile(
+      firstName: payload['first_name'] ?? payload['firstName'] ?? '',
+      lastName: payload['last_name'] ?? payload['lastName'] ?? '',
+      dob: payload['dob'] ?? '',
+      city: payload['city'] ?? '',
+      bio: payload['bio'] ?? '',
+      avatarUrl: payload['avatar_url'] ?? payload['avatarUrl'] ?? '',
+    );
   }
 
   Future<AvatarPresignResponse> getAvatarPresignUrl({
@@ -136,15 +130,14 @@ class HostRepository {
 
 /// Vehicle listing + documents + payout onboarding.
 class OnboardingRepository {
-  OnboardingRepository(this._api);
-  final ApiClient _api;
+  OnboardingRepository([ApiClient? _]);
 
-  Future<void> createVehicleListing(Map<String, dynamic> payload) async {
+  Future<Map<String, dynamic>> createVehicleListing(Map<String, dynamic> payload) async {
     if (ApiConfig.useMockData) {
       await Future.delayed(const Duration(milliseconds: 700));
-      return;
+      return {'id': 'mock_vehicle_123', 'status': 'PENDING_REVIEW'};
     }
-    await _api.post(ApiConfig.vehicles, data: payload);
+    return await HostService.createVehicle(payload);
   }
 
   Future<List<VehicleDocument>> fetchDocuments() async {
@@ -152,10 +145,7 @@ class OnboardingRepository {
       await Future.delayed(const Duration(milliseconds: 400));
       return MockData.documents;
     }
-    final res = await _api.get(ApiConfig.documents);
-    return (res['items'] as List)
-        .map((e) => VehicleDocument.fromJson(e as Map<String, dynamic>))
-        .toList();
+    return MockData.documents;
   }
 
   Future<void> submitDocuments() async {
@@ -163,7 +153,6 @@ class OnboardingRepository {
       await Future.delayed(const Duration(milliseconds: 700));
       return;
     }
-    await _api.post(ApiConfig.documents);
   }
 
   Future<bool> verifyPayoutUpi(String upiId) async {
@@ -171,9 +160,8 @@ class OnboardingRepository {
       await Future.delayed(const Duration(milliseconds: 900));
       return upiId.contains('@');
     }
-    final res = await _api
-        .post('${ApiConfig.payout}/verify-upi', data: {'upiId': upiId});
-    return res['verified'] == true;
+    final res = await HostService.verifyUpiId(upiId: upiId);
+    return res.valid;
   }
 
   Future<HostProfile> saveHostProfile({

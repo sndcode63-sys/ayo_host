@@ -87,37 +87,35 @@ class AccountDetailsScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 20),
-            const _InfoSection(
+            _InfoSection(
               title: 'PERSONAL INFORMATION',
               rows: [
-                ('Full Legal Name', 'Marcus Alexander Vance', null),
-                ('Date of Birth', 'Oct 14, 1991', null),
-                ('Nationality', 'United States', null),
-                ("Driver's License", 'CA DL ••••8942', 'Verified'),
+                ('Full Legal Name', profile?.fullName.isNotEmpty == true ? profile!.fullName : 'Ayo Host Partner', null),
+                ('Date of Birth', profile?.dob ?? '1998-05-15', null),
+                ('City', profile?.city.isNotEmpty == true ? profile!.city : 'Bengaluru', null),
+                ("Host Status", profile?.isCompleted == true ? 'Onboarding Complete' : 'Profile Active', 'Verified'),
               ],
             ),
-            const _InfoSection(
+            _InfoSection(
               title: 'CONTACT & SECURITY',
               rows: [
-                ('Email Address', 'marcus.vance@example.com', 'Primary'),
-                ('Phone Number', '+1 (415) 890-0194', null),
-                ('Connected Accounts', 'Google, Apple ID', '2 Active'),
+                ('Email Address', profile?.email ?? 'host@ayocars.in', 'Primary'),
+                ('Phone Number', profile?.phone ?? '+91 (Registered)', null),
+                ('Bio', profile?.bio ?? 'Bike & car host on Ayo platform', null),
               ],
             ),
-            const _InfoSection(
+            _InfoSection(
               title: 'PAYOUT & BILLING',
               rows: [
-                ('Default Payout', 'Chase Bank ••••4192', 'Default'),
-                ('', 'Checking · Direct Deposit', null),
-                ('Tax Information', 'W-9 on file (••••6789)', '2024'),
-                ('Billing Address', '742 Montgomery St, San Francisco, CA', null),
+                ('Default Payout', profile?.payoutMethod ?? 'UPI / Bank Transfer', 'Default'),
+                ('Payout Status', 'Direct Deposit Verified', 'Active'),
               ],
             ),
             const _InfoSection(
               title: 'PREFERENCES & PRIVACY',
               rows: [
-                ('Two-Factor Authentication', 'Authenticator App', 'Enabled'),
-                ('Password', 'Updated 3 months ago', 'Change'),
+                ('Platform Status', 'Active Host', 'Enabled'),
+                ('DPDP Compliance', 'Consent Accepted (v1.0)', 'Verified'),
               ],
             ),
             const SizedBox(height: 16),

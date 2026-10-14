@@ -7,7 +7,9 @@ import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
 import '../../widgets/chrome.dart';
-import '../documents/vehicle_documents_screen.dart';
+import '../dashboard/main_shell.dart';
+import '../../../data/services/host_service.dart';
+import '../../../core/services/toast_service.dart';
 
 /// AYO Host Payout & Bank Verification — Host Onboarding (Step 2 of 2).
 class PayoutSetupScreen extends StatefulWidget {
@@ -20,27 +22,72 @@ class PayoutSetupScreen extends StatefulWidget {
 }
 
 class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
-  final _upiController = TextEditingController(text: 'marcus.vance@okaxis');
+  final _upiController = TextEditingController(text: 'rohit@okaxis');
+  final _accountNumberController = TextEditingController();
+  final _ifscController = TextEditingController();
+  final _accountHolderController = TextEditingController();
   bool _upiTab = true;
+  bool _isSavingPayout = false;
 
   @override
   void dispose() {
     _upiController.dispose();
+    _accountNumberController.dispose();
+    _ifscController.dispose();
+    _accountHolderController.dispose();
     super.dispose();
   }
 
   Future<void> _verify() async {
     final ctrl = context.read<OnboardingController>();
-    final ok = await ctrl.verifyUpi(_upiController.text.trim());
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(ok
-            ? 'UPI ID verified · Penny drop successful'
-            : 'Could not verify this UPI ID'),
-        backgroundColor: ok ? AppColors.success : AppColors.primary,
-      ),
-    );
+    final upi = _upiController.text.trim();
+    if (upi.isEmpty) {
+      ToastService.showWarning('Please enter a UPI ID');
+      return;
+    }
+    await ctrl.verifyUpi(upi);
+  }
+
+  Future<void> _finishPayoutSetup() async {
+    setState(() => _isSavingPayout = true);
+    try {
+      if (_upiTab) {
+        final upi = _upiController.text.trim();
+        if (upi.isEmpty) {
+          ToastService.showWarning('Please enter your UPI ID');
+          setState(() => _isSavingPayout = false);
+          return;
+        }
+        await HostService.savePayoutMethod(
+          payoutMethod: 'UPI',
+          upiId: upi,
+        );
+      } else {
+        final acc = _accountNumberController.text.trim();
+        final ifsc = _ifscController.text.trim();
+        final name = _accountHolderController.text.trim();
+        if (acc.isEmpty || ifsc.isEmpty || name.isEmpty) {
+          ToastService.showWarning('Please enter all bank account details');
+          setState(() => _isSavingPayout = false);
+          return;
+        }
+        await HostService.savePayoutMethod(
+          payoutMethod: 'BANK',
+          accountNumber: acc,
+          ifscCode: ifsc,
+          accountHolderName: name,
+        );
+      }
+
+      ToastService.showSuccess('Payout setup complete!');
+      if (mounted) {
+        Navigator.pushReplacementNamed(context, MainShell.route);
+      }
+    } catch (e) {
+      // Toast shown by error interceptor
+    } finally {
+      if (mounted) setState(() => _isSavingPayout = false);
+    }
   }
 
   @override
@@ -243,15 +290,17 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
             const SizedBox(height: 20),
             PrimaryButton(
               label: 'Verify & Finish Setup',
-              icon: Icons.arrow_forward_rounded,
-              onPressed: () => Navigator.pushNamed(
-                  context, VehicleDocumentsScreen.route),
+              icon: Icons.check_circle_rounded,
+              loading: _isSavingPayout,
+              onPressed: _finishPayoutSetup,
             ),
             const SizedBox(height: 12),
             Center(
               child: TextButton(
-                onPressed: () =>
-                    Navigator.popUntil(context, (r) => r.isFirst),
+                onPressed: () {
+                  ToastService.showInfo('You can configure payout anytime in Settings');
+                  Navigator.pushReplacementNamed(context, MainShell.route);
+                },
                 child: Text('Set up payout later in Settings',
                     style: AppText.body.copyWith(
                         fontSize: 11,

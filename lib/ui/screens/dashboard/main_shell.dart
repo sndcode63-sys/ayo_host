@@ -5,6 +5,7 @@ import '../../../state/controllers.dart';
 import '../../widgets/chrome.dart';
 import '../menu/more_menu_screen.dart';
 import 'dashboard_screen.dart';
+import 'fleet_screen.dart';
 import 'placeholder_tab.dart';
 
 /// Hosts the 5 bottom-nav tabs: Dashboard, Fleet, Calendar, Messages, More.
@@ -33,7 +34,7 @@ class _MainShellState extends State<MainShell> {
   Widget build(BuildContext context) {
     final pages = [
       const DashboardScreen(),
-      const PlaceholderTab(title: 'Fleet'),
+      const FleetScreen(),
       const PlaceholderTab(title: 'Calendar'),
       const PlaceholderTab(title: 'Messages'),
       const MoreMenuScreen(),

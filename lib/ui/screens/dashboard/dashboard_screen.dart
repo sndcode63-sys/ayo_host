@@ -412,15 +412,28 @@ class _CarTile extends StatelessWidget {
       padding: const EdgeInsets.all(12),
       child: Row(
         children: [
-          Container(
-            width: 56,
-            height: 44,
-            decoration: BoxDecoration(
+          ClipRRect(
+            borderRadius: BorderRadius.circular(9),
+            child: Container(
+              width: 58,
+              height: 46,
               color: AppColors.fieldFill,
-              borderRadius: BorderRadius.circular(9),
+              child: vehicle.imageUrl != null && vehicle.imageUrl!.isNotEmpty
+                  ? Image.network(
+                      vehicle.imageUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => const Icon(
+                        Icons.directions_car_rounded,
+                        size: 24,
+                        color: AppColors.textMuted,
+                      ),
+                    )
+                  : const Icon(
+                      Icons.directions_car_rounded,
+                      size: 24,
+                      color: AppColors.textMuted,
+                    ),
             ),
-            child: const Icon(Icons.directions_car_rounded,
-                size: 24, color: AppColors.textMuted),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -431,9 +444,8 @@ class _CarTile extends StatelessWidget {
                     style: AppText.sectionTitle.copyWith(fontSize: 13)),
                 const SizedBox(height: 2),
                 Text(
-                  '${vehicle.state} · ${vehicle.plate} · EV ${vehicle.batteryPercent}%',
-                  style:
-                      AppText.body.copyWith(fontSize: 10),
+                  '₹${vehicle.dailyRate.toInt()}/day · ${vehicle.plate.isNotEmpty ? vehicle.plate : 'Reg Pending'}',
+                  style: AppText.body.copyWith(fontSize: 10, color: AppColors.textSecondary),
                 ),
               ],
             ),

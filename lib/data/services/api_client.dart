@@ -210,16 +210,20 @@ class _ErrorInterceptor extends Interceptor {
       case DioExceptionType.badResponse:
         final statusCode = err.response?.statusCode;
         if (statusCode == 401) {
-          errorMessage = 'Session expired. Please login again.';
           SecureStorageService.clearAuthData();
-        } else if (statusCode == 403) {
-          errorMessage = 'Access denied. You don\'t have permission.';
-        } else if (statusCode == 404) {
-          errorMessage = 'Resource not found.';
-        } else if (statusCode == 422) {
-          errorMessage = 'Invalid data provided.';
-        } else if (statusCode! >= 500) {
-          errorMessage = 'Server error. Please try again later.';
+          if (errorMessage == 'Something went wrong') {
+            errorMessage = 'Session expired. Please login again.';
+          }
+        } else if (errorMessage == 'Something went wrong') {
+          if (statusCode == 403) {
+            errorMessage = 'Access denied. You don\'t have permission.';
+          } else if (statusCode == 404) {
+            errorMessage = 'Resource not found.';
+          } else if (statusCode == 422) {
+            errorMessage = 'Invalid data provided.';
+          } else if (statusCode != null && statusCode >= 500) {
+            errorMessage = 'Server error. Please try again later.';
+          }
         }
         break;
       default:
