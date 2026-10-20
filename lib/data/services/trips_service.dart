@@ -17,15 +17,23 @@ class TripsService {
         queryParameters: {'status': status},
       );
 
-      final tripsList = response['data'] as List<dynamic>;
-      final trips =
-          tripsList.map((json) => Trip.fromJson(json as Map<String, dynamic>)).toList();
+      final raw = response['data'];
+      List items = [];
+      if (raw is Map && raw['items'] is List) {
+        items = raw['items'];
+      } else if (raw is List) {
+        items = raw;
+      }
+
+      final trips = items
+          .map((json) => Trip.fromJson(json as Map<String, dynamic>))
+          .toList();
 
       LoggerService.info('Fetched ${trips.length} trips');
       return trips;
     } catch (e) {
       LoggerService.error('Failed to fetch trips', error: e);
-      rethrow;
+      return [];
     }
   }
 

@@ -166,7 +166,7 @@ class _LoggingInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     LoggerService.error(
-      'API Error: ${err.requestOptions.method} ${err.requestOptions.uri}',
+      'API Error: ${err.requestOptions.method} ${err.requestOptions.uri} - Response: ${err.response?.data}',
       error: err,
     );
     super.onError(err, handler);

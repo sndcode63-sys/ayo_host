@@ -6,9 +6,8 @@ import '../../widgets/chrome.dart';
 import '../menu/more_menu_screen.dart';
 import 'dashboard_screen.dart';
 import 'fleet_screen.dart';
-import 'placeholder_tab.dart';
 
-/// Hosts the 5 bottom-nav tabs: Dashboard, Fleet, Calendar, Messages, More.
+/// Hosts the 3 bottom-nav tabs: Dashboard, Fleet, More.
 class MainShell extends StatefulWidget {
   const MainShell({super.key});
 
@@ -35,12 +34,11 @@ class _MainShellState extends State<MainShell> {
     final pages = [
       const DashboardScreen(),
       const FleetScreen(),
-      const PlaceholderTab(title: 'Calendar'),
-      const PlaceholderTab(title: 'Messages'),
       const MoreMenuScreen(),
     ];
 
     return Scaffold(
+      extendBody: true,
       body: IndexedStack(index: _index, children: pages),
       bottomNavigationBar: AyoBottomNav(
         currentIndex: _index,

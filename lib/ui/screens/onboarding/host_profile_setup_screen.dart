@@ -1,12 +1,17 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/services/host_service.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/chrome.dart';
 import '../../widgets/inputs.dart';
+import '../dashboard/main_shell.dart';
 import 'payout_setup_screen.dart';
 
 /// AYO Create Profile — Host Profile Setup (Step 1 of 2).
@@ -20,14 +25,31 @@ class HostProfileSetupScreen extends StatefulWidget {
 }
 
 class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
-  final _firstName = TextEditingController(text: 'Rohit');
-  final _lastName = TextEditingController(text: 'Kumar');
-  final _email = TextEditingController();
-  final _dob = TextEditingController(text: '1998-05-15');
-  final _city = TextEditingController(text: 'Bengaluru');
-  final _phone = TextEditingController();
-  final _bio = TextEditingController(text: 'Bike & car host on Ayo platform');
-  final String _avatarKey = 'avatars/default_host.jpg';
+  late final TextEditingController _firstName;
+  late final TextEditingController _lastName;
+  late final TextEditingController _email;
+  late final TextEditingController _dob;
+  late final TextEditingController _city;
+  late final TextEditingController _phone;
+  late final TextEditingController _bio;
+  String _avatarUrl = '';
+  bool _uploadingAvatar = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final profile = context.read<ProfileController>().profile;
+    final user = context.read<AuthController>().user;
+
+    _firstName = TextEditingController(text: profile?.firstName ?? '');
+    _lastName = TextEditingController(text: profile?.lastName ?? '');
+    _email = TextEditingController(text: profile?.email ?? user?.email ?? '');
+    _dob = TextEditingController(text: profile?.dob ?? '');
+    _city = TextEditingController(text: profile?.city ?? '');
+    _phone = TextEditingController(text: profile?.phone ?? user?.phone ?? '');
+    _bio = TextEditingController(text: profile?.bio ?? '');
+    _avatarUrl = profile?.avatarUrl ?? '';
+  }
 
   @override
   void dispose() {
@@ -45,6 +67,42 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
     super.dispose();
   }
 
+  Future<void> _pickAndUploadAvatar() async {
+    final picker = ImagePicker();
+    final XFile? picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+
+    setState(() => _uploadingAvatar = true);
+    try {
+      final url = await HostService.uploadToCloudinary(File(picked.path));
+      setState(() => _avatarUrl = url);
+      ToastService.showSuccess('Profile photo uploaded successfully!');
+    } catch (e) {
+      ToastService.showError('Photo upload failed: $e');
+    } finally {
+      if (mounted) setState(() => _uploadingAvatar = false);
+    }
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(2000, 1, 1),
+      firstDate: DateTime(1940),
+      lastDate: DateTime.now().subtract(const Duration(days: 365 * 21)),
+    );
+    if (picked != null) {
+      final month = picked.month.toString().padLeft(2, '0');
+      final day = picked.day.toString().padLeft(2, '0');
+      setState(() {
+        _dob.text = '${picked.year}-$month-$day';
+      });
+    }
+  }
+
   Future<void> _continue() async {
     if (_firstName.text.trim().isEmpty || _lastName.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -59,7 +117,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
       'dob': _dob.text.trim(),
       'city': _city.text.trim(),
       'bio': _bio.text.trim(),
-      'avatar_url': _avatarKey,
+      'avatar_url': _avatarUrl,
     });
     if (mounted && ok) {
       Navigator.pushReplacementNamed(context, PayoutSetupScreen.route);
@@ -75,11 +133,18 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
           children: [
-            const StepHeader(
+            StepHeader(
               step: 1,
               totalSteps: 2,
               title: 'Host Profile Setup',
-              rightTag: '50% Completed',
+              rightTag: 'Step 1 of 2',
+              onClose: () {
+                if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                } else {
+                  Navigator.pushReplacementNamed(context, MainShell.route);
+                }
+              },
             ),
             const SizedBox(height: 20),
             Text('Set up your Host profile', style: AppText.screenTitle),
@@ -90,46 +155,79 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
             ),
             const SizedBox(height: 20),
             Center(
-              child: Column(
-                children: [
-                  Stack(
-                    children: [
-                      Container(
-                        width: 76,
-                        height: 76,
-                        decoration: BoxDecoration(
-                          color: AppColors.fieldFill,
-                          shape: BoxShape.circle,
-                          border:
-                              Border.all(color: AppColors.fieldBorder),
-                        ),
-                        child: const Icon(Icons.person_outline_rounded,
-                            size: 34, color: AppColors.textMuted),
-                      ),
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          decoration: const BoxDecoration(
-                            color: AppColors.primary,
+              child: GestureDetector(
+                onTap: _uploadingAvatar ? null : _pickAndUploadAvatar,
+                child: Column(
+                  children: [
+                    Stack(
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: AppColors.fieldFill,
                             shape: BoxShape.circle,
+                            border: Border.all(color: AppColors.primaryBorder, width: 1.5),
                           ),
-                          child: const Icon(Icons.add_rounded,
-                              size: 15, color: Colors.white),
+                          child: _uploadingAvatar
+                              ? const Center(
+                                  child: SizedBox(
+                                    width: 24,
+                                    height: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                )
+                              : _avatarUrl.isNotEmpty
+                                  ? ClipRRect(
+                                      borderRadius: BorderRadius.circular(40),
+                                      child: Image.network(
+                                        _avatarUrl,
+                                        width: 80,
+                                        height: 80,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) => const Icon(
+                                          Icons.person_outline_rounded,
+                                          size: 34,
+                                          color: AppColors.textMuted,
+                                        ),
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.person_outline_rounded,
+                                      size: 34,
+                                      color: AppColors.textMuted,
+                                    ),
                         ),
+                        Positioned(
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            width: 26,
+                            height: 26,
+                            decoration: const BoxDecoration(
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(Icons.camera_alt_rounded,
+                                size: 14, color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _avatarUrl.isNotEmpty ? 'Change Photo' : 'Upload Profile Photo',
+                      style: AppText.body.copyWith(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Add Photo',
-                      style: AppText.body.copyWith(
-                          fontSize: 11, fontWeight: FontWeight.w600)),
-                  Text('Optional. Can be updated later',
-                      style: AppText.body.copyWith(
-                          fontSize: 9.5, color: AppColors.textMuted)),
-                ],
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 20),
@@ -138,7 +236,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
                 Expanded(
                   child: AppTextField(
                     label: 'First Name',
-                    hint: 'Alex',
+                    hint: 'First name',
                     controller: _firstName,
                   ),
                 ),
@@ -146,7 +244,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
                 Expanded(
                   child: AppTextField(
                     label: 'Last Name',
-                    hint: 'Morgan',
+                    hint: 'Last name',
                     controller: _lastName,
                   ),
                 ),
@@ -155,7 +253,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
             const SizedBox(height: 14),
             AppTextField(
               label: 'Email Address',
-              hint: 'alex.morgan@example.com',
+              hint: 'your.email@example.com',
               controller: _email,
               keyboardType: TextInputType.emailAddress,
               prefix: const Icon(Icons.mail_outline_rounded,
@@ -164,9 +262,10 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
             const SizedBox(height: 14),
             AppTextField(
               label: 'Date of Birth',
-              hint: 'mm/dd/yyyy',
+              hint: 'YYYY-MM-DD',
               controller: _dob,
-              keyboardType: TextInputType.datetime,
+              readOnly: true,
+              onTap: () => _selectDate(context),
               prefix: const Icon(Icons.calendar_today_outlined,
                   size: 16, color: AppColors.textMuted),
               suffix: Text('21+ required',
@@ -183,7 +282,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
             const SizedBox(height: 14),
             AppTextField(
               label: 'City & Region',
-              hint: 'San Francisco, CA',
+              hint: 'Bengaluru, Mumbai, Delhi...',
               controller: _city,
               prefix: const Icon(Icons.location_on_outlined,
                   size: 17, color: AppColors.textMuted),
@@ -191,7 +290,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
             const SizedBox(height: 14),
             AppTextField(
               label: 'Phone Number',
-              hint: '(415) 000-0000',
+              hint: '+91 9876543210',
               controller: _phone,
               keyboardType: TextInputType.phone,
               prefix: const Icon(Icons.call_outlined,
@@ -231,7 +330,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
             ),
             const SizedBox(height: 16),
             PrimaryButton(
-              label: 'Continue to Vehicle Listing',
+              label: 'Continue to Payout Setup',
               icon: Icons.arrow_forward_rounded,
               loading: saving,
               onPressed: _continue,

@@ -10,7 +10,7 @@ import '../../widgets/chrome.dart';
 import '../../widgets/inputs.dart';
 import 'vehicle_photos_screen.dart';
 
-/// AYO Add Vehicle — List Your Vehicle (Step 1 of 2: Details & Pricing).
+/// AYO Add Vehicle — List Your Vehicle (Step 1 of 2: Details, Custom Class, Pincode & Pricing).
 class VehicleDetailsScreen extends StatefulWidget {
   const VehicleDetailsScreen({super.key});
 
@@ -21,12 +21,82 @@ class VehicleDetailsScreen extends StatefulWidget {
 }
 
 class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
-  final _rateController = TextEditingController(text: '120');
+  late final TextEditingController _makeController;
+  late final TextEditingController _modelController;
+  late final TextEditingController _yearController;
+  late final TextEditingController _rateController;
+  late final TextEditingController _plateController;
+  late final TextEditingController _addressController;
+  late final TextEditingController _pincodeController;
+
+  @override
+  void initState() {
+    super.initState();
+    final ob = context.read<OnboardingController>();
+    _makeController = TextEditingController(text: ob.make);
+    _modelController = TextEditingController(text: ob.model);
+    _yearController = TextEditingController(text: ob.year);
+    _rateController = TextEditingController(text: ob.dailyRate > 0 ? ob.dailyRate.toInt().toString() : '');
+    _plateController = TextEditingController(text: ob.plate);
+    _addressController = TextEditingController(text: ob.pickupAddress);
+    _pincodeController = TextEditingController(text: ob.pincode);
+  }
 
   @override
   void dispose() {
+    _makeController.dispose();
+    _modelController.dispose();
+    _yearController.dispose();
     _rateController.dispose();
+    _plateController.dispose();
+    _addressController.dispose();
+    _pincodeController.dispose();
     super.dispose();
+  }
+
+  void _showAddCustomClassDialog(BuildContext context) {
+    final customClassController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Custom Vehicle Class'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter custom vehicle body type or class (e.g. Vintage, Van, Camper):',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: customClassController,
+              decoration: const InputDecoration(
+                hintText: 'e.g. Convertible / Vintage',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () {
+              final name = customClassController.text.trim();
+              if (name.isNotEmpty) {
+                context.read<OnboardingController>().addCustomBodyType(name);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Add & Select', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -42,21 +112,39 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
               step: 1,
               totalSteps: 2,
               title: 'List Your Vehicle',
-              subtitle: 'Step 1 of 2 · Details & Pricing',
+              subtitle: 'Step 1 of 2 · Specs, Location & Rates',
             ),
             const SizedBox(height: 20),
             Text('Vehicle Details', style: AppText.screenTitle),
             const SizedBox(height: 4),
             Text(
-              'Specify your vehicle specs and registration for automatic verification.',
+              'Specify your vehicle details, registration plate, location, and daily rate to list on Ayo.',
               style: AppText.body,
             ),
             const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('VEHICLE CLASS / BODY TYPE', style: AppText.fieldLabel),
+                GestureDetector(
+                  onTap: () => _showAddCustomClassDialog(context),
+                  child: Text(
+                    '+ Custom Class',
+                    style: AppText.captionCaps.copyWith(
+                      color: AppColors.primary,
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final t in ['Electric', 'Sedan', 'Sports Car', 'SUV'])
+                for (final t in ob.bodyTypes)
                   SelectChip(
                     label: t,
                     icon: t == 'Electric' ? Icons.bolt_rounded : null,
@@ -64,34 +152,32 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                     onTap: () =>
                         context.read<OnboardingController>().setBodyType(t),
                   ),
+                SelectChip(
+                  label: '+ Custom Class',
+                  selected: false,
+                  icon: Icons.add_rounded,
+                  onTap: () => _showAddCustomClassDialog(context),
+                ),
               ],
             ),
             const SizedBox(height: 18),
             Row(
               children: [
                 Expanded(
-                  child: AppDropdownField(
-                    label: 'Make',
-                    value: ob.make.isEmpty ? null : ob.make,
-                    hint: 'Porsche',
-                    items: const [
-                      'Porsche',
-                      'BMW',
-                      'Tesla',
-                      'Mercedes',
-                      'Audi'
-                    ],
-                    onChanged: (v) => ob.make = v ?? '',
+                  child: AppTextField(
+                    label: 'Make / Brand',
+                    hint: 'e.g. Hyundai, Tata, Porsche...',
+                    controller: _makeController,
+                    onChanged: (v) => ob.make = v,
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: AppDropdownField(
-                    label: 'Model',
-                    value: ob.model.isEmpty ? null : ob.model,
-                    hint: 'Taycan 4S',
-                    items: const ['Taycan 4S', 'i4 M50', 'Model S Plaid'],
-                    onChanged: (v) => ob.model = v ?? '',
+                  child: AppTextField(
+                    label: 'Model Name',
+                    hint: 'e.g. Creta, Nexon, Taycan...',
+                    controller: _modelController,
+                    onChanged: (v) => ob.model = v,
                   ),
                 ),
               ],
@@ -100,22 +186,22 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
             Row(
               children: [
                 Expanded(
-                  child: AppDropdownField(
-                    label: 'Year',
-                    value: ob.year.isEmpty ? null : ob.year,
-                    hint: '2024',
-                    items: const ['2025', '2024', '2023', '2022'],
-                    onChanged: (v) => ob.year = v ?? '',
+                  child: AppTextField(
+                    label: 'Manufacturing Year',
+                    hint: 'e.g. 2024',
+                    controller: _yearController,
+                    keyboardType: TextInputType.number,
+                    onChanged: (v) => ob.year = v,
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: AppDropdownField(
                     label: 'Transmission',
-                    value: ob.transmission.isEmpty ? null : ob.transmission,
+                    value: ob.transmission.isEmpty ? 'Automatic' : ob.transmission,
                     hint: 'Automatic',
                     items: const ['Automatic', 'Manual'],
-                    onChanged: (v) => ob.transmission = v ?? '',
+                    onChanged: (v) => ob.transmission = v ?? 'Automatic',
                   ),
                 ),
               ],
@@ -126,48 +212,108 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 Expanded(
                   flex: 2,
                   child: AppTextField(
-                    label: 'License Plate & State',
-                    hint: '7XYZ890',
+                    label: 'License Registration Plate',
+                    hint: 'e.g. KA 01 AB 1234',
+                    controller: _plateController,
                     onChanged: (v) => ob.plate = v,
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
+                  flex: 3,
                   child: AppDropdownField(
-                    label: ' ',
-                    value: ob.plateState.isEmpty ? null : ob.plateState,
-                    hint: 'CA',
-                    items: const ['CA', 'NY', 'TX', 'FL'],
-                    onChanged: (v) => ob.plateState = v ?? '',
+                    label: 'Registration State',
+                    value: ob.plateState.isEmpty ? 'KA - Karnataka' : ob.plateState,
+                    hint: 'KA - Karnataka',
+                    items: OnboardingController.allIndianStates,
+                    onChanged: (v) => ob.plateState = v ?? 'KA - Karnataka',
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 18),
-            SectionHeader(
-              title: 'Photos',
-              trailing: '1 / 4 min',
-              trailingColor: AppColors.textMuted,
+            Text('PICKUP LOCATION & PINCODE', style: AppText.fieldLabel),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _pincodeController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. 560038',
+                      counterText: '',
+                      border: OutlineInputBorder(),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
+                    onChanged: (v) => ob.pincode = v,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: ob.pincodeLoading
+                        ? null
+                        : () async {
+                            final success = await ob.fetchAddressFromPincode(
+                              _pincodeController.text,
+                            );
+                            if (success) {
+                              _addressController.text = ob.pickupAddress;
+                            }
+                          },
+                    icon: ob.pincodeLoading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.my_location_rounded, size: 16),
+                    label: const Text('Fetch Location'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.primary,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text('Add at least 4 clear photos of exterior and interior.',
-                style: AppText.body.copyWith(fontSize: 10)),
             const SizedBox(height: 10),
-            const _PhotoGrid(),
+            AppTextField(
+              label: 'Pickup Address',
+              hint: 'e.g. Flat 101, Indiranagar, Bengaluru, Karnataka',
+              controller: _addressController,
+              prefix: const Icon(Icons.location_on_outlined,
+                  size: 17, color: AppColors.primary),
+              onChanged: (v) => ob.pickupAddress = v,
+            ),
             const SizedBox(height: 18),
             SectionHeader(
               title: 'Pricing & Earnings',
-              trailing: 'Recommended \$110 - \$140',
+              trailing: 'Set your daily rental rate in ₹',
             ),
             const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: AppTextField(
-                    label: 'Daily Rate',
-                    hint: '\$ 120',
+                    label: 'Daily Rate (Rupees)',
+                    hint: 'e.g. 3500',
                     controller: _rateController,
                     keyboardType: TextInputType.number,
+                    prefix: const Padding(
+                      padding: EdgeInsets.only(left: 12, right: 4),
+                      child: Text('₹', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    ),
                     suffix: Text('/ day',
                         style: AppText.body
                             .copyWith(fontSize: 11, color: AppColors.textMuted)),
@@ -190,7 +336,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                         Text('Allow Hourly Rentals',
                             style: AppText.sectionTitle
                                 .copyWith(fontSize: 12.5)),
-                        Text('\$22/hr · 3 hr minimum',
+                        Text('Hourly rentals enabled for guest trips',
                             style: AppText.body.copyWith(fontSize: 10)),
                       ],
                     ),
@@ -205,53 +351,72 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            AppCard(
-              color: AppColors.primarySoft,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('EST. MONTHLY EARNINGS',
-                          style: AppText.captionCaps
-                              .copyWith(color: AppColors.primary)),
-                      const SizedBox(height: 3),
-                      Text(
-                        '~\$${ob.estimatedMonthly.toStringAsFixed(0)} /mo',
-                        style: AppText.screenTitle.copyWith(fontSize: 18),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.card,
-                      borderRadius: BorderRadius.circular(20),
+            if (ob.dailyRate > 0)
+              AppCard(
+                color: AppColors.primarySoft,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('EST. MONTHLY HOST EARNINGS',
+                            style: AppText.captionCaps
+                                .copyWith(color: AppColors.primary)),
+                        const SizedBox(height: 3),
+                        Text(
+                          '~₹${ob.estimatedMonthly.toInt()} /mo',
+                          style: AppText.screenTitle.copyWith(fontSize: 18),
+                        ),
+                      ],
                     ),
-                    child: Text('80% occupancy',
-                        style: AppText.captionCaps.copyWith(
-                            color: AppColors.textSecondary, fontSize: 8.5)),
-                  ),
-                ],
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppColors.card,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text('75% occupancy',
+                          style: AppText.captionCaps.copyWith(
+                              color: AppColors.textSecondary, fontSize: 8.5)),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
-            _FeeCard(fee: OnboardingController.listingFee),
             const SizedBox(height: 18),
             PrimaryButton(
-              label:
-                  'Continue · \$${OnboardingController.listingFee.toStringAsFixed(2)}',
+              label: 'Next: Vehicle Photos & Documents',
               icon: Icons.arrow_forward_rounded,
               loading: ob.saving,
-              onPressed: () =>
-                  Navigator.pushNamed(context, VehiclePhotosScreen.route),
+              onPressed: () {
+                if (ob.make.trim().isEmpty || ob.model.trim().isEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter Make and Model of your vehicle')),
+                  );
+                  return;
+                }
+                final currentYear = DateTime.now().year;
+                final parsedYear = int.tryParse(ob.year.trim());
+                if (parsedYear == null || parsedYear < 1990 || parsedYear > currentYear + 1) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Please enter a valid 4-digit manufacturing year (1990 - ${currentYear + 1})')),
+                  );
+                  return;
+                }
+                if (ob.dailyRate <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Please enter a daily rate in ₹')),
+                  );
+                  return;
+                }
+                Navigator.pushNamed(context, VehiclePhotosScreen.route);
+              },
             ),
             const SizedBox(height: 12),
             Center(
               child: Text(
-                'By proceeding, you agree to AYO\'s Host Terms and Safety Standards',
+                'By proceeding, you agree to AYO\'s Host Terms and Vehicle Safety Standards',
                 style: AppText.body
                     .copyWith(fontSize: 9.5, color: AppColors.textMuted),
                 textAlign: TextAlign.center,
@@ -259,141 +424,6 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _PhotoGrid extends StatelessWidget {
-  const _PhotoGrid();
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 1.55,
-      children: const [
-        _PhotoSlot(label: 'Cover', sublabel: 'Exterior 3/4', filled: true),
-        _PhotoSlot(label: 'Interior', sublabel: 'Cockpit & seats'),
-        _PhotoSlot(label: 'Rear & Trunk', sublabel: 'Charging port'),
-        _PhotoSlot(label: 'More Photos', sublabel: 'Up to 8 total', isAdd: true),
-      ],
-    );
-  }
-}
-
-class _PhotoSlot extends StatelessWidget {
-  const _PhotoSlot({
-    required this.label,
-    required this.sublabel,
-    this.filled = false,
-    this.isAdd = false,
-  });
-
-  final String label;
-  final String sublabel;
-  final bool filled;
-  final bool isAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: filled ? AppColors.primarySoft : AppColors.card,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: filled ? AppColors.primaryBorder : AppColors.cardBorder,
-        ),
-      ),
-      child: Stack(
-        children: [
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  isAdd
-                      ? Icons.add_rounded
-                      : filled
-                          ? Icons.check_circle_rounded
-                          : Icons.add_photo_alternate_outlined,
-                  size: 22,
-                  color: filled ? AppColors.primary : AppColors.textMuted,
-                ),
-                const SizedBox(height: 4),
-                Text(label,
-                    style: AppText.captionCaps.copyWith(
-                        color: AppColors.textSecondary, fontSize: 8.5)),
-                Text(sublabel,
-                    style: AppText.body.copyWith(
-                        fontSize: 8.5, color: AppColors.textMuted)),
-              ],
-            ),
-          ),
-          if (filled)
-            const Positioned(
-              top: 6,
-              left: 8,
-              child: Text('COVER',
-                  style: TextStyle(
-                      fontSize: 7.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.6,
-                      color: AppColors.primary)),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FeeCard extends StatelessWidget {
-  const _FeeCard({required this.fee});
-
-  final double fee;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Verification & Telematics Setup',
-                    style: AppText.sectionTitle.copyWith(fontSize: 12.5)),
-                const SizedBox(height: 3),
-                Text('One-time registration and smart key kit',
-                    style: AppText.body.copyWith(fontSize: 10)),
-                const SizedBox(height: 8),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.check_circle_rounded,
-                        size: 12, color: AppColors.primary),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        'Includes \$1,000,000 host liability protection & 24/7 telematics tracking',
-                        style: AppText.body.copyWith(
-                            fontSize: 9.5, color: AppColors.textMuted),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text('\$${fee.toStringAsFixed(2)}',
-              style: AppText.screenTitle.copyWith(fontSize: 17)),
-        ],
       ),
     );
   }

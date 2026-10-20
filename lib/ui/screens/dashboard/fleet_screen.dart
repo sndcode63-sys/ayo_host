@@ -6,9 +6,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/cards.dart';
+import '../documents/vehicle_documents_screen.dart';
 import '../onboarding/vehicle_details_screen.dart';
 
-/// Full Fleet Management Screen for AYO Host with real backend data
+/// Full Fleet Management Screen for AYO Host with real backend data.
 class FleetScreen extends StatelessWidget {
   const FleetScreen({super.key});
 
@@ -96,6 +97,14 @@ class _FleetCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AppCard(
       padding: const EdgeInsets.all(14),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => VehicleDocumentsScreen(vehicleId: vehicle.id),
+          ),
+        );
+      },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -161,19 +170,24 @@ class _FleetCard extends StatelessWidget {
                 '₹${vehicle.dailyRate.toInt()} / day',
                 style: AppText.screenTitle.copyWith(fontSize: 16),
               ),
-              Text(
-                vehicle.status == 'ACTIVE'
-                    ? '🟢 Live on Catalog'
-                    : vehicle.status == 'PENDING_REVIEW'
-                        ? '⏳ Under Admin Review'
-                        : '📝 Draft',
-                style: AppText.body.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: vehicle.status == 'ACTIVE'
-                      ? AppColors.success
-                      : AppColors.textSecondary,
-                ),
+              Row(
+                children: [
+                  Text(
+                    vehicle.status == 'ACTIVE'
+                        ? '🟢 Live on Catalog'
+                        : vehicle.status == 'PENDING_REVIEW'
+                            ? '⏳ Under Admin Review'
+                            : '📝 Tap to View Documents',
+                    style: AppText.body.copyWith(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: vehicle.status == 'ACTIVE'
+                          ? AppColors.success
+                          : AppColors.primary,
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right_rounded, size: 16, color: AppColors.primary),
+                ],
               ),
             ],
           ),

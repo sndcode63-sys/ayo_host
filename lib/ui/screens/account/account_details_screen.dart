@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
+import '../onboarding/host_profile_setup_screen.dart';
 
 /// AYO Account Details — personal info, contact, payout, privacy.
 class AccountDetailsScreen extends StatelessWidget {
@@ -16,6 +17,25 @@ class AccountDetailsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final profile = context.watch<ProfileController>().profile;
+    final user = context.watch<AuthController>().user;
+
+    final nameText = profile?.fullName.isNotEmpty == true
+        ? profile!.fullName
+        : user?.name?.isNotEmpty == true
+            ? user!.name!
+            : 'Host Partner';
+
+    final emailText = profile?.email?.isNotEmpty == true
+        ? profile!.email!
+        : user?.email?.isNotEmpty == true
+            ? user!.email!
+            : 'Not set';
+
+    final phoneText = profile?.phone?.isNotEmpty == true
+        ? profile!.phone!
+        : user?.phone.isNotEmpty == true
+            ? user!.phone
+            : 'Not set';
 
     return Scaffold(
       body: SafeArea(
@@ -41,45 +61,59 @@ class AccountDetailsScreen extends StatelessWidget {
                 const Spacer(),
                 Text('Account Details', style: AppText.sectionTitle),
                 const Spacer(),
-                Text('Edit',
-                    style: AppText.body.copyWith(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primary)),
+                GestureDetector(
+                  onTap: () => Navigator.pushNamed(context, HostProfileSetupScreen.route),
+                  child: Text('Edit',
+                      style: AppText.body.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary)),
+                ),
               ],
             ),
             const SizedBox(height: 18),
             Center(
               child: Column(
                 children: [
-                  Stack(
-                    children: [
-                      CircleAvatar(
-                        radius: 34,
-                        backgroundColor: AppColors.primarySoft,
-                        child: Text(
-                          profile?.initials ?? 'MV',
-                          style: AppText.screenTitle
-                              .copyWith(color: AppColors.primary),
-                        ),
-                      ),
-                      const Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: CircleAvatar(
-                          radius: 10,
-                          backgroundColor: AppColors.primary,
-                          child: Icon(Icons.check_rounded,
-                              size: 12, color: Colors.white),
-                        ),
-                      ),
-                    ],
+                  GestureDetector(
+                    onTap: () => Navigator.pushNamed(context, HostProfileSetupScreen.route),
+                    child: Builder(
+                      builder: (context) {
+                        final avatarUrl = profile?.avatarUrl;
+                        final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
+                        return Stack(
+                          children: [
+                            CircleAvatar(
+                              radius: 34,
+                              backgroundColor: AppColors.primarySoft,
+                              backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
+                              child: hasAvatar
+                                  ? null
+                                  : Text(
+                                      profile?.initials.isNotEmpty == true ? profile!.initials : 'H',
+                                      style: AppText.screenTitle
+                                          .copyWith(color: AppColors.primary),
+                                    ),
+                            ),
+                            const Positioned(
+                              right: 0,
+                              bottom: 0,
+                              child: CircleAvatar(
+                                radius: 10,
+                                backgroundColor: AppColors.primary,
+                                child: Icon(Icons.edit_rounded,
+                                    size: 10, color: Colors.white),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                   const SizedBox(height: 10),
-                  Text(profile?.fullName ?? 'Marcus Vance',
-                      style: AppText.screenTitle.copyWith(fontSize: 19)),
+                  Text(nameText, style: AppText.screenTitle.copyWith(fontSize: 19)),
                   Text(
-                    'Host · Member since ${profile?.memberSince ?? '2023'}',
+                    'Host Partner · Member since ${profile?.memberSince ?? '2024'}',
                     style: AppText.body
                         .copyWith(fontSize: 11, color: AppColors.textMuted),
                   ),
@@ -90,25 +124,25 @@ class AccountDetailsScreen extends StatelessWidget {
             _InfoSection(
               title: 'PERSONAL INFORMATION',
               rows: [
-                ('Full Legal Name', profile?.fullName.isNotEmpty == true ? profile!.fullName : 'Ayo Host Partner', null),
-                ('Date of Birth', profile?.dob ?? '1998-05-15', null),
-                ('City', profile?.city.isNotEmpty == true ? profile!.city : 'Bengaluru', null),
+                ('Full Name', nameText, null),
+                ('Date of Birth', (profile?.dob?.isNotEmpty == true) ? profile!.dob! : 'Not provided', null),
+                ('City / Region', (profile?.city.isNotEmpty == true) ? profile!.city : 'Not provided', null),
                 ("Host Status", profile?.isCompleted == true ? 'Onboarding Complete' : 'Profile Active', 'Verified'),
               ],
             ),
             _InfoSection(
               title: 'CONTACT & SECURITY',
               rows: [
-                ('Email Address', profile?.email ?? 'host@ayocars.in', 'Primary'),
-                ('Phone Number', profile?.phone ?? '+91 (Registered)', null),
-                ('Bio', profile?.bio ?? 'Bike & car host on Ayo platform', null),
+                ('Email Address', emailText, 'Primary'),
+                ('Phone Number', phoneText, 'Verified'),
+                ('Bio', (profile?.bio.isNotEmpty == true) ? profile!.bio : 'Host on Ayo platform', null),
               ],
             ),
             _InfoSection(
               title: 'PAYOUT & BILLING',
               rows: [
-                ('Default Payout', profile?.payoutMethod ?? 'UPI / Bank Transfer', 'Default'),
-                ('Payout Status', 'Direct Deposit Verified', 'Active'),
+                ('Payout Method', profile?.payoutMethod ?? 'UPI / Bank Transfer', 'Configured'),
+                ('Payout Status', 'Direct Deposit', 'Active'),
               ],
             ),
             const _InfoSection(
@@ -120,30 +154,9 @@ class AccountDetailsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             PrimaryButton(
-              label: 'Edit Details',
+              label: 'Edit Profile Details',
               icon: Icons.edit_outlined,
               onPressed: () {},
-            ),
-            const SizedBox(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text('Download Data',
-                    style: AppText.body.copyWith(
-                        fontSize: 10.5, color: AppColors.textSecondary)),
-                const SizedBox(width: 18),
-                Text('Deactivate Account',
-                    style: AppText.body.copyWith(
-                        fontSize: 10.5, color: AppColors.primary)),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Center(
-              child: Text(
-                'AYO ID: AYO-US-928104 · 256-bit encrypted',
-                style: AppText.body
-                    .copyWith(fontSize: 9, color: AppColors.textMuted),
-              ),
             ),
           ],
         ),
@@ -194,7 +207,7 @@ class _InfoRow extends StatelessWidget {
   final String? tag;
 
   Color get _tagColor => switch (tag) {
-        'Verified' || 'Enabled' => AppColors.success,
+        'Verified' || 'Enabled' || 'Configured' => AppColors.success,
         'Change' => AppColors.primary,
         _ => AppColors.textMuted,
       };

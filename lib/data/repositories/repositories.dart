@@ -1,10 +1,9 @@
-import '../../core/config/api_config.dart';
 import '../models/models.dart';
 import '../services/api_client.dart';
 import '../services/auth_service.dart';
 import '../services/host_service.dart';
 
-/// Auth + host profile calls.
+/// Auth + host profile repository calls.
 class AuthRepository {
   AuthRepository([ApiClient? _]);
 
@@ -40,7 +39,6 @@ class AuthRepository {
     return await HostService.getOnboardingStatus();
   }
 
-
   Future<void> logout() async {
     await AuthService.logout();
   }
@@ -50,41 +48,42 @@ class AuthRepository {
   }
 }
 
-/// Dashboard stats + fleet.
+/// Dashboard stats + fleet repository calls.
 class HostRepository {
   HostRepository(this._api);
   final ApiClient _api;
 
   Future<DashboardStats> fetchDashboard() async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      return MockData.dashboard;
+    try {
+      final res = await _api.get('/host/dashboard');
+      return DashboardStats.fromJson(res['data'] ?? res);
+    } catch (_) {
+      // Aggregate dynamically from real host vehicles and profile
+      final vehicles = await fetchVehicles();
+      final profile = await fetchProfile();
+      return DashboardStats(
+        greeting: 'Welcome,',
+        hostName: profile.firstName.isNotEmpty ? profile.firstName : 'Host Partner',
+        totalRevenue: vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate),
+        revenueChangePercent: 0,
+        pendingPayout: 0,
+        payoutDate: 'Auto Transfer',
+        activeRides: vehicles.where((v) => v.status == 'ACTIVE' || v.status == 'ON_TRIP').length,
+        totalVehicles: vehicles.length,
+        occupancyPercent: vehicles.isEmpty ? 0 : 80,
+      );
     }
-    final res = await _api.get(ApiConfig.dashboard);
-    return DashboardStats.fromJson(res);
   }
 
   Future<List<Vehicle>> fetchVehicles() async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 500));
-      return MockData.vehicles;
-    }
     return await HostService.getMyVehicles();
   }
 
   Future<HostProfile> fetchProfile() async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 400));
-      return MockData.host;
-    }
     return await HostService.getHostProfile();
   }
 
   Future<HostProfile> saveProfile(Map<String, dynamic> payload) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 600));
-      return MockData.host;
-    }
     return await HostService.saveHostProfile(
       firstName: payload['first_name'] ?? payload['firstName'] ?? '',
       lastName: payload['last_name'] ?? payload['lastName'] ?? '',
@@ -128,38 +127,56 @@ class HostRepository {
   }
 }
 
-/// Vehicle listing + documents + payout onboarding.
+/// Vehicle listing + documents + payout onboarding repository calls.
 class OnboardingRepository {
   OnboardingRepository([ApiClient? _]);
 
   Future<Map<String, dynamic>> createVehicleListing(Map<String, dynamic> payload) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 700));
-      return {'id': 'mock_vehicle_123', 'status': 'PENDING_REVIEW'};
-    }
     return await HostService.createVehicle(payload);
   }
 
-  Future<List<VehicleDocument>> fetchDocuments() async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 400));
-      return MockData.documents;
-    }
-    return MockData.documents;
+  Future<DocumentStatusChecklist?> fetchDocumentStatus(String vehicleId) async {
+    if (vehicleId.isEmpty) return null;
+    return await HostService.getDocumentStatus(vehicleId);
   }
 
-  Future<void> submitDocuments() async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 700));
-      return;
+  Future<List<VehicleDocument>> fetchDocuments([String? vehicleId]) async {
+    if (vehicleId != null && vehicleId.isNotEmpty) {
+      final checklist = await fetchDocumentStatus(vehicleId);
+      if (checklist != null) return checklist.documents;
+    }
+    return [];
+  }
+
+  Future<void> confirmDocument({
+    required String vehicleId,
+    required String type,
+    required String url,
+    String? fileName,
+    int? fileSizeBytes,
+    String? expiryDate,
+  }) async {
+    await HostService.confirmDocument(
+      vehicleId: vehicleId,
+      type: type,
+      url: url,
+      fileName: fileName,
+      fileSizeBytes: fileSizeBytes,
+      expiryDate: expiryDate,
+    );
+  }
+
+  Future<void> submitVehicleForReview(String vehicleId) async {
+    await HostService.submitVehicleForReview(vehicleId);
+  }
+
+  Future<void> submitDocuments([String? vehicleId]) async {
+    if (vehicleId != null && vehicleId.isNotEmpty) {
+      await submitVehicleForReview(vehicleId);
     }
   }
 
   Future<bool> verifyPayoutUpi(String upiId) async {
-    if (ApiConfig.useMockData) {
-      await Future.delayed(const Duration(milliseconds: 900));
-      return upiId.contains('@');
-    }
     final res = await HostService.verifyUpiId(upiId: upiId);
     return res.valid;
   }
@@ -181,117 +198,4 @@ class OnboardingRepository {
       avatarUrl: avatarUrl,
     );
   }
-}
-
-/// Mock payload matching the AYO design. Replaced automatically when
-/// [ApiConfig.useMockData] is false.
-class MockData {
-  MockData._();
-
-  static const host = HostProfile(
-    id: 'host_001',
-    firstName: 'Marcus',
-    lastName: 'Vance',
-    email: 'marcus.vance@example.com',
-    phone: '+1 (415) 890-0194',
-    city: 'San Francisco, CA',
-    bio: 'Superhost · San Francisco, CA',
-    tier: 'Superhost Elite',
-    rating: 4.98,
-    reviewCount: 86,
-    responseRate: 99,
-    memberSince: '2023',
-    step: 1,
-    isCompleted: false,
-  );
-
-  static const dashboard = DashboardStats(
-    greeting: 'Good morning,',
-    hostName: 'Marcus',
-    totalRevenue: 14850.00,
-    revenueChangePercent: 16.4,
-    pendingPayout: 2420,
-    payoutDate: 'Oct 29',
-    activeRides: 6,
-    totalVehicles: 8,
-    occupancyPercent: 88,
-    nextHandover: Handover(
-      vehicleName: 'Porsche Taycan 4S',
-      guestName: 'Sarah J.',
-      timeLabel: 'Today, 02:30 PM',
-      location: 'SFO T2',
-      countdown: 'In 45 min',
-    ),
-  );
-
-  static const vehicles = [
-    Vehicle(
-      id: 'v1',
-      make: 'Porsche',
-      model: 'Taycan 4S',
-      year: 2024,
-      plate: '7AYO081',
-      state: 'CA',
-      transmission: 'Automatic',
-      bodyType: 'Sports Car',
-      batteryPercent: 94,
-      status: 'On Trip',
-      dailyRate: 120,
-    ),
-    Vehicle(
-      id: 'v2',
-      make: 'BMW',
-      model: 'i4 M50',
-      year: 2023,
-      plate: '7AYO432',
-      state: 'CA',
-      transmission: 'Automatic',
-      bodyType: 'Sedan',
-      batteryPercent: 78,
-      status: 'On Trip',
-      dailyRate: 98,
-    ),
-    Vehicle(
-      id: 'v3',
-      make: 'Tesla',
-      model: 'Model S Plaid',
-      year: 2024,
-      plate: '8AYO916',
-      state: 'CA',
-      transmission: 'Automatic',
-      bodyType: 'Sedan',
-      batteryPercent: 88,
-      status: 'Available',
-      dailyRate: 135,
-    ),
-  ];
-
-  static const documents = [
-    VehicleDocument(
-      type: 'rc',
-      title: 'Registration Certificate',
-      subtitle: 'Smart card or paper RC, front & back',
-      status: 'Uploaded',
-      fileName: 'rc_front_2\u2026',
-      fileMeta: '1.1 MB · Ready',
-    ),
-    VehicleDocument(
-      type: 'dl',
-      title: "Host Driver's License",
-      subtitle: 'CA DL \u2022\u2022\u2022\u20228962 · Expires 11/2028',
-      status: 'Verified',
-    ),
-    VehicleDocument(
-      type: 'insurance',
-      title: 'Commercial Insurance',
-      subtitle: 'Comprehensive active coverage',
-      status: 'Required',
-    ),
-    VehicleDocument(
-      type: 'smog',
-      title: 'Pollution / Smog Check',
-      subtitle: 'Valid inspection test report',
-      status: 'Required',
-    ),
-  ];
 }

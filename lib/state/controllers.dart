@@ -1,11 +1,16 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart' hide User;
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import '../core/services/logger_service.dart';
 import '../core/services/toast_service.dart';
 import '../data/models/models.dart';
 import '../data/repositories/repositories.dart';
+import '../data/services/host_service.dart';
 import '../data/services/trips_service.dart';
 
 class AuthController extends ChangeNotifier {
@@ -34,7 +39,6 @@ class AuthController extends ChangeNotifier {
         phoneNumber: phoneNumber,
         timeout: const Duration(seconds: 60),
         verificationCompleted: (PhoneAuthCredential credential) async {
-          // Auto verification on some Android devices
           try {
             final userCredential =
                 await FirebaseAuth.instance.signInWithCredential(credential);
@@ -124,13 +128,10 @@ class AuthController extends ChangeNotifier {
 
       user = authResponse.user;
 
-      // Check onboarding status
       try {
         onboardingStatus = await _repo.getOnboardingStatus();
         host = onboardingStatus?.profile;
-      } catch (_) {
-        // Fallback if status endpoint not ready yet
-      }
+      } catch (_) {}
 
       return true;
     } catch (e) {
@@ -169,7 +170,9 @@ class AuthController extends ChangeNotifier {
 
   Future<void> signOut() async {
     await _repo.logout();
-    await FirebaseAuth.instance.signOut();
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
     user = null;
     host = null;
     onboardingStatus = null;
@@ -186,6 +189,9 @@ class DashboardController extends ChangeNotifier {
   DashboardStats? stats;
   List<Vehicle> vehicles = [];
   List<Trip> upcomingTrips = [];
+  HostProfile? hostProfile;
+  SupportConfig? supportConfig;
+  PlatformPolicies? platformPolicies;
   bool loading = false;
   String? error;
 
@@ -195,35 +201,80 @@ class DashboardController extends ChangeNotifier {
     notifyListeners();
     try {
       final results = await Future.wait([
-        _repo.fetchVehicles(),
-        TripsService.getUpcomingTrips().catchError((_) => <Trip>[]),
+        _repo.fetchVehicles().catchError((e) {
+          LoggerService.error('Fetch vehicles error', error: e);
+          return <Vehicle>[];
+        }),
+        TripsService.getUpcomingTrips().catchError((e) {
+          LoggerService.error('Fetch upcoming trips error', error: e);
+          return <Trip>[];
+        }),
+        _repo.fetchProfile().catchError((e) {
+          return const HostProfile(
+            id: '',
+            firstName: '',
+            lastName: '',
+            city: '',
+            bio: '',
+            step: 0,
+            isCompleted: false,
+          );
+        }),
+        HostService.getSupportConfig().catchError((e) {
+          LoggerService.error('Fetch support config error', error: e);
+          return const SupportConfig(
+            whatsapp: '',
+            phone: '1800-296-0000',
+            email: 'support@ayo.com',
+            whatsappLink: '',
+            telLink: '',
+          );
+        }),
+        HostService.getPlatformPolicies().catchError((e) {
+          LoggerService.error('Fetch platform policies error', error: e);
+          return const PlatformPolicies(
+            minRenterAge: 21,
+            cancellationFreeHours: 24,
+            coverageText: 'Comprehensive insurance with 24/7 roadside assistance.',
+            currency: 'INR',
+          );
+        }),
       ]);
+
       vehicles = results[0] as List<Vehicle>;
       upcomingTrips = results[1] as List<Trip>;
+      hostProfile = results[2] as HostProfile;
+      supportConfig = results[3] as SupportConfig;
+      platformPolicies = results[4] as PlatformPolicies;
 
-      // Dynamically calculate stats from real vehicles and trips
       Handover? nextHandover;
       if (upcomingTrips.isNotEmpty) {
         final firstTrip = upcomingTrips.first;
         nextHandover = Handover(
+          tripId: firstTrip.id,
           vehicleName: firstTrip.vehicle,
           guestName: firstTrip.customer.name,
           timeLabel: DateFormat('MMM dd, hh:mm a').format(firstTrip.startTime),
-          location: 'Host Location',
+          location: 'Host Spot',
           countdown: 'Upcoming',
         );
       }
 
+      final activeCount = vehicles.where((v) => v.status == 'ACTIVE' || v.status == 'ON_TRIP').length;
+      final totalRevenue = vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate);
+
       stats = DashboardStats(
         greeting: 'Welcome,',
-        hostName: 'Host Partner',
-        totalRevenue: 0,
+        hostName: hostProfile?.firstName.isNotEmpty == true
+            ? hostProfile!.firstName
+            : 'Host Partner',
+        totalRevenue: totalRevenue,
         revenueChangePercent: 0,
         pendingPayout: 0,
         payoutDate: 'Auto Transfer',
-        activeRides: upcomingTrips.length,
+        activeRides: activeCount,
         totalVehicles: vehicles.length,
-        occupancyPercent: vehicles.isEmpty ? 0 : 85,
+        occupancyPercent: vehicles.isEmpty ? 0 : 80,
         nextHandover: nextHandover,
       );
     } catch (e) {
@@ -231,6 +282,26 @@ class DashboardController extends ChangeNotifier {
     } finally {
       loading = false;
       notifyListeners();
+    }
+  }
+
+  Future<bool> startTripHandover({
+    required String tripId,
+    required String token,
+    required double hostLat,
+    required double hostLng,
+  }) async {
+    try {
+      await HostService.startHandover(
+        tripId: tripId,
+        token: token,
+        hostLat: hostLat,
+        hostLng: hostLng,
+      );
+      await load();
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 }
@@ -247,6 +318,8 @@ class ProfileController extends ChangeNotifier {
     notifyListeners();
     try {
       profile = await _repo.fetchProfile();
+    } catch (e) {
+      LoggerService.error('Failed to load profile', error: e);
     } finally {
       loading = false;
       notifyListeners();
@@ -257,7 +330,7 @@ class ProfileController extends ChangeNotifier {
     loading = true;
     notifyListeners();
     try {
-      await _repo.saveProfile(payload);
+      profile = await _repo.saveProfile(payload);
       return true;
     } catch (_) {
       return false;
@@ -272,31 +345,103 @@ class OnboardingController extends ChangeNotifier {
   OnboardingController(this._repo);
   final OnboardingRepository _repo;
 
-  // Vehicle listing draft
-  String bodyType = 'Electric';
+  // Body/Class Types list (Host can select existing or add custom)
+  List<String> bodyTypes = [
+    'Sedan',
+    'SUV',
+    'Electric',
+    'Hatchback',
+    'Sports Car',
+    'Luxury',
+    'Convertible',
+  ];
+
+  // Complete List of All 34 Indian States & Union Territories
+  static const List<String> allIndianStates = [
+    'KA - Karnataka',
+    'MH - Maharashtra',
+    'DL - Delhi NCR',
+    'TN - Tamil Nadu',
+    'TS - Telangana',
+    'HR - Haryana',
+    'UP - Uttar Pradesh',
+    'GJ - Gujarat',
+    'RJ - Rajasthan',
+    'MP - Madhya Pradesh',
+    'WB - West Bengal',
+    'AP - Andhra Pradesh',
+    'KL - Kerala',
+    'PB - Punjab',
+    'UK - Uttarakhand',
+    'BR - Bihar',
+    'CG - Chhattisgarh',
+    'GA - Goa',
+    'HP - Himachal Pradesh',
+    'JK - Jammu & Kashmir',
+    'JH - Jharkhand',
+    'OR - Odisha',
+    'TR - Tripura',
+    'AS - Assam',
+    'MN - Manipur',
+    'ML - Meghalaya',
+    'MZ - Mizoram',
+    'NL - Nagaland',
+    'SK - Sikkim',
+    'PY - Puducherry',
+    'CH - Chandigarh',
+    'AN - Andaman & Nicobar',
+    'DN - Dadra & Nagar Haveli',
+    'LA - Ladakh',
+  ];
+
+  // Vehicle listing draft fields
+  String createdVehicleId = '';
+  String bodyType = 'Sedan';
   String make = '';
   String model = '';
-  String year = '';
-  String transmission = '';
+  String year = DateTime.now().year.toString();
+  String transmission = 'Automatic';
   String plate = '';
-  String plateState = '';
-  double dailyRate = 120;
-  bool hourlyRentals = true;
-  bool hostDelivery = true;
+  String plateState = 'KA - Karnataka';
+  String pincode = '';
+  double dailyRate = 0; // in Rupees
+  bool hourlyRentals = false;
+  bool hostDelivery = false;
   String pickupAddress = '';
+  List<String> photoUrls = [];
 
-  List<VehicleDocument> documents = [];
+  // Map storing uploaded legal document URLs ('RC', 'DL', 'INSURANCE', 'POLLUTION')
+  Map<String, String> uploadedDocUrls = {};
+
+  DocumentStatusChecklist? documentChecklist;
+  List<VehicleDocument> get documents => documentChecklist?.documents ?? [];
   bool documentsLoading = false;
 
   bool saving = false;
+  bool uploadingPhoto = false;
+  bool uploadingDoc = false;
+  bool pincodeLoading = false;
   bool verifyingUpi = false;
   bool upiVerified = false;
 
-  static const double listingFee = 49.00;
+  static const double listingFeeRupees = 0.00;
+  static const double listingFee = listingFeeRupees;
 
   void setBodyType(String v) {
     bodyType = v;
     notifyListeners();
+  }
+
+  void addCustomBodyType(String customType) {
+    final clean = customType.trim();
+    if (clean.isNotEmpty) {
+      if (!bodyTypes.contains(clean)) {
+        bodyTypes.add(clean);
+      }
+      bodyType = clean;
+      notifyListeners();
+      ToastService.showSuccess('Custom vehicle class "$clean" added and selected!');
+    }
   }
 
   void setHourlyRentals(bool v) {
@@ -309,34 +454,189 @@ class OnboardingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  double get estimatedMonthly => dailyRate * 24; // ~80% occupancy
+  void resetVehicleDraft() {
+    createdVehicleId = '';
+    bodyType = 'Sedan';
+    make = '';
+    model = '';
+    year = DateTime.now().year.toString();
+    transmission = 'Automatic';
+    plate = '';
+    plateState = 'KA - Karnataka';
+    pincode = '';
+    dailyRate = 0;
+    hourlyRentals = false;
+    hostDelivery = false;
+    pickupAddress = '';
+    photoUrls = [];
+    uploadedDocUrls = {};
+    documentChecklist = null;
+    notifyListeners();
+  }
+
+  double get estimatedMonthly => dailyRate * 22;
+
+  /// Pincode Lookup API (https://api.postalpincode.in/pincode/$pin)
+  Future<bool> fetchAddressFromPincode(String pin) async {
+    final cleanPin = pin.trim();
+    if (cleanPin.length != 6) {
+      ToastService.showWarning('Please enter a valid 6-digit Pincode');
+      return false;
+    }
+
+    pincodeLoading = true;
+    pincode = cleanPin;
+    notifyListeners();
+
+    try {
+      final res = await http.get(
+        Uri.parse('https://api.postalpincode.in/pincode/$cleanPin'),
+      );
+      if (res.statusCode == 200) {
+        final List data = jsonDecode(res.body);
+        if (data.isNotEmpty && data[0]['Status'] == 'Success') {
+          final postOffices = data[0]['PostOffice'] as List;
+          if (postOffices.isNotEmpty) {
+            final po = postOffices.first;
+            final name = po['Name'] ?? '';
+            final district = po['District'] ?? '';
+            final state = po['State'] ?? '';
+
+            pickupAddress = '$name, $district, $state - $cleanPin';
+
+            // Auto select matching Indian State
+            final matchedState = allIndianStates.firstWhere(
+              (s) => s.toLowerCase().contains(state.toLowerCase()),
+              orElse: () => plateState,
+            );
+            plateState = matchedState;
+
+            ToastService.showSuccess('Location fetched: $district, $state');
+            notifyListeners();
+            return true;
+          }
+        }
+      }
+      ToastService.showWarning('Pincode location not found. Please enter address manually.');
+      return false;
+    } catch (e) {
+      LoggerService.error('Pincode fetch error', error: e);
+      return false;
+    } finally {
+      pincodeLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String?> uploadPhotoToCloudinary(File file) async {
+    uploadingPhoto = true;
+    notifyListeners();
+    try {
+      final url = await HostService.uploadToCloudinary(file);
+      photoUrls.add(url);
+      notifyListeners();
+      return url;
+    } catch (e) {
+      ToastService.showError('Photo upload failed: $e');
+      return null;
+    } finally {
+      uploadingPhoto = false;
+      notifyListeners();
+    }
+  }
+
+  Future<String?> uploadDocumentFile(String docType, File file) async {
+    uploadingDoc = true;
+    notifyListeners();
+    try {
+      final url = await HostService.uploadToCloudinary(file);
+      uploadedDocUrls[docType] = url;
+
+      if (createdVehicleId.isNotEmpty) {
+        await confirmDocument(
+          vehicleId: createdVehicleId,
+          type: docType,
+          url: url,
+        );
+      }
+
+      ToastService.showSuccess('$docType uploaded successfully!');
+      notifyListeners();
+      return url;
+    } catch (e) {
+      ToastService.showError('$docType upload failed: $e');
+      return null;
+    } finally {
+      uploadingDoc = false;
+      notifyListeners();
+    }
+  }
+
+  void addPhotoUrl(String url) {
+    if (url.trim().isNotEmpty) {
+      photoUrls.add(url.trim());
+      notifyListeners();
+    }
+  }
+
+  void removePhotoUrl(int index) {
+    if (index >= 0 && index < photoUrls.length) {
+      photoUrls.removeAt(index);
+      notifyListeners();
+    }
+  }
 
   Future<bool> submitListing() async {
+    if (make.trim().isEmpty || model.trim().isEmpty) {
+      ToastService.showWarning('Please enter vehicle Make and Model');
+      return false;
+    }
+    final currentYear = DateTime.now().year;
+    final yearInt = int.tryParse(year.trim()) ?? currentYear;
+    if (yearInt < 1990 || yearInt > currentYear + 1) {
+      ToastService.showWarning('Please enter a valid 4-digit manufacturing year (1990 - ${currentYear + 1})');
+      return false;
+    }
+    if (plate.trim().isEmpty) {
+      ToastService.showWarning('Please enter vehicle Registration Plate number');
+      return false;
+    }
+    if (dailyRate <= 0) {
+      ToastService.showWarning('Please enter a valid daily rental rate in ₹');
+      return false;
+    }
+    if (pickupAddress.trim().isEmpty) {
+      ToastService.showWarning('Please enter vehicle pickup address or pincode');
+      return false;
+    }
+
+    final validPhotos = photoUrls.where((u) => u.startsWith('http')).toList();
+    if (validPhotos.isEmpty) {
+      ToastService.showWarning('Please upload at least 1 photo of your vehicle');
+      return false;
+    }
+
     saving = true;
     notifyListeners();
     try {
       final ratePaise = (dailyRate * 100).round();
-      final yearInt = int.tryParse(year) ?? 2024;
-      
+
       final payload = <String, dynamic>{
-        'make': make.isEmpty ? 'Porsche' : make,
-        'model': model.isEmpty ? 'Taycan 4S' : model,
+        'make': make.trim(),
+        'model': model.trim(),
         'year': yearInt,
         'body_type': bodyType,
-        'transmission': transmission.isEmpty ? 'Automatic' : transmission,
-        'registration_number': plate.isEmpty ? 'DL 01 AB 1234' : plate,
-        'name': '${make.isEmpty ? 'Porsche' : make} ${model.isEmpty ? 'Taycan' : model}',
+        'transmission': transmission.trim().isEmpty ? 'Automatic' : transmission.trim(),
+        'registration_number': '${plateState.split(' - ').first} ${plate.trim()}',
+        'name': '${make.trim()} ${model.trim()}',
         'description': 'Host vehicle listed on AYO platform.',
-        'daily_rate': ratePaise > 0 ? ratePaise : 1500000,
-        'weekend_daily_rate': ((ratePaise > 0 ? ratePaise : 1500000) * 1.2).round(),
-        'hourly_rate': hourlyRentals ? 100000 : 0,
+        'daily_rate': ratePaise,
+        'weekend_daily_rate': (ratePaise * 1.2).round(),
+        'hourly_rate': hourlyRentals ? (ratePaise / 10).round() : 0,
         'lat': 12.9716,
         'lng': 77.5946,
-        'address': pickupAddress.isEmpty ? '124 Market St, Financial District' : pickupAddress,
-        'photos': [
-          'https://images.unsplash.com/photo-1503376780353-7e6692767b70',
-          'https://images.unsplash.com/photo-1541348263662-e0c8de4259ba'
-        ],
+        'address': pickupAddress.trim(),
+        'photos': validPhotos,
         'instant_unlock': true,
         'delivery_available': hostDelivery,
         'delivery_fee': hostDelivery ? 50000 : 0,
@@ -345,14 +645,26 @@ class OnboardingController extends ChangeNotifier {
         'smoking_allowed': false,
         'pets_allowed': true,
         'return_condition_note': 'Return with minimum 20% fuel/charge.',
-        'spec_acceleration': '3.8s',
-        'spec_range_km': 500,
-        'spec_power_hp': 530,
-        'spec_cargo_note': '400 L Boot space',
-        'badge_text': 'Instant Booking',
       };
 
-      await _repo.createVehicleListing(payload);
+      final result = await _repo.createVehicleListing(payload);
+      if (result.containsKey('id')) {
+        createdVehicleId = result['id'].toString();
+
+        // Confirm all uploaded documents with backend if available
+        for (final entry in uploadedDocUrls.entries) {
+          await confirmDocument(
+            vehicleId: createdVehicleId,
+            type: entry.key,
+            url: entry.value,
+          );
+        }
+
+        // Submit vehicle for review
+        await submitVehicleForReview(createdVehicleId);
+      }
+
+      ToastService.showSuccess('Vehicle submitted for review! Check fleet status on Dashboard.');
       return true;
     } catch (e) {
       return false;
@@ -362,22 +674,62 @@ class OnboardingController extends ChangeNotifier {
     }
   }
 
-  Future<void> loadDocuments() async {
+  Future<void> loadDocuments([String? vId]) async {
+    final vehicleId = vId ?? createdVehicleId;
+    if (vehicleId.isEmpty) return;
+
     documentsLoading = true;
     notifyListeners();
     try {
-      documents = await _repo.fetchDocuments();
+      documentChecklist = await _repo.fetchDocumentStatus(vehicleId);
+    } catch (e) {
+      LoggerService.error('Failed loading vehicle document checklist', error: e);
     } finally {
       documentsLoading = false;
       notifyListeners();
     }
   }
 
-  Future<bool> submitDocuments() async {
+  Future<bool> confirmDocument({
+    required String vehicleId,
+    required String type,
+    required String url,
+    String? fileName,
+    int? fileSizeBytes,
+    String? expiryDate,
+  }) async {
     saving = true;
     notifyListeners();
     try {
-      await _repo.submitDocuments();
+      await _repo.confirmDocument(
+        vehicleId: vehicleId,
+        type: type,
+        url: url,
+        fileName: fileName,
+        fileSizeBytes: fileSizeBytes,
+        expiryDate: expiryDate,
+      );
+      await loadDocuments(vehicleId);
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      saving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> submitVehicleForReview([String? vId]) async {
+    final vehicleId = vId ?? createdVehicleId;
+    if (vehicleId.isEmpty) {
+      ToastService.showError('Vehicle ID missing. Please create vehicle first.');
+      return false;
+    }
+
+    saving = true;
+    notifyListeners();
+    try {
+      await _repo.submitVehicleForReview(vehicleId);
       return true;
     } catch (_) {
       return false;
@@ -387,13 +739,23 @@ class OnboardingController extends ChangeNotifier {
     }
   }
 
+  Future<bool> submitDocuments([String? vId]) => submitVehicleForReview(vId);
+
   Future<bool> verifyUpi(String upiId) async {
+    if (upiId.trim().isEmpty) {
+      ToastService.showWarning('Please enter a UPI ID');
+      return false;
+    }
+
     verifyingUpi = true;
     upiVerified = false;
     notifyListeners();
     try {
-      upiVerified = await _repo.verifyPayoutUpi(upiId);
+      upiVerified = await _repo.verifyPayoutUpi(upiId.trim());
       return upiVerified;
+    } catch (e) {
+      upiVerified = false;
+      return false;
     } finally {
       verifyingUpi = false;
       notifyListeners();

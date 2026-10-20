@@ -77,7 +77,7 @@ class AppTextField extends StatelessWidget {
   }
 }
 
-/// Dropdown styled like [AppTextField].
+/// Dropdown styled like [AppTextField] with overflow protection.
 class AppDropdownField extends StatelessWidget {
   const AppDropdownField({
     super.key,
@@ -96,10 +96,20 @@ class AppDropdownField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final validValue = items.contains(value) ? value : (items.isNotEmpty ? items.first : null);
+
     final dropdown = DropdownButtonFormField<String>(
-      initialValue: value,
+      initialValue: validValue,
+      isExpanded: true,
       items: items
-          .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+          .map((e) => DropdownMenuItem(
+                value: e,
+                child: Text(
+                  e,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.input,
+                ),
+              ))
           .toList(),
       onChanged: onChanged,
       style: AppText.input,

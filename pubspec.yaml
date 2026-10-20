@@ -40,6 +40,9 @@
     # Firebase Push Notifications
     firebase_messaging: ^16.0.3
 
+    # Image Picker & Media
+    image_picker: ^1.1.2
+
 
     # Local Notifications
 #    flutter_local_notifications: ^19.5.0

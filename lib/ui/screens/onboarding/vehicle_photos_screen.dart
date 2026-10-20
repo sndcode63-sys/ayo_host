@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_colors.dart';
@@ -7,14 +9,130 @@ import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
 import '../../widgets/chrome.dart';
-import '../../widgets/inputs.dart';
-import 'payout_setup_screen.dart';
+import '../dashboard/main_shell.dart';
 
-/// AYO Host Vehicle Listing & Details (Step 2 of 2: Photos, Specs, Location).
+/// AYO Host Vehicle Listing — Step 2 of 2: Photos, Documents & Full Live Preview.
 class VehiclePhotosScreen extends StatelessWidget {
   const VehiclePhotosScreen({super.key});
 
   static const route = '/onboarding/vehicle/photos';
+
+  Future<void> _pickAndUploadPhoto(BuildContext context) async {
+    final picker = ImagePicker();
+    final XFile? picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (picked == null || !context.mounted) return;
+
+    final ctrl = context.read<OnboardingController>();
+    await ctrl.uploadPhotoToCloudinary(File(picked.path));
+  }
+
+  Future<void> _pickAndUploadDoc(BuildContext context, String docType) async {
+    final picker = ImagePicker();
+    final XFile? picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+    if (picked == null || !context.mounted) return;
+
+    final ctrl = context.read<OnboardingController>();
+    await ctrl.uploadDocumentFile(docType, File(picked.path));
+  }
+
+  void _showAddPhotoOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Upload Vehicle Photo', style: AppText.sectionTitle),
+              const SizedBox(height: 16),
+              Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: AppColors.primarySoft,
+                    child: Icon(Icons.photo_library_rounded, color: AppColors.primary),
+                  ),
+                  title: const Text('Choose Photo from Gallery'),
+                  subtitle: const Text('Pick image file from phone'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickAndUploadPhoto(context);
+                  },
+                ),
+              ),
+              const Divider(),
+              Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: AppColors.primarySoft,
+                    child: Icon(Icons.link_rounded, color: AppColors.primary),
+                  ),
+                  title: const Text('Paste Direct Image URL'),
+                  subtitle: const Text('Enter Cloudinary / HTTPS URL'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showUrlInputDialog(context);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showUrlInputDialog(BuildContext context) {
+    final urlController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add Image URL'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Enter direct image URL for your car:', style: TextStyle(fontSize: 12)),
+            const SizedBox(height: 10),
+            TextField(
+              controller: urlController,
+              decoration: const InputDecoration(
+                hintText: 'https://res.cloudinary.com/.../car.jpg',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () {
+              final url = urlController.text.trim();
+              if (url.isNotEmpty) {
+                context.read<OnboardingController>().addPhotoUrl(url);
+              }
+              Navigator.pop(ctx);
+            },
+            child: const Text('Add Photo', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,20 +146,33 @@ class VehiclePhotosScreen extends StatelessWidget {
             const StepHeader(
               step: 2,
               totalSteps: 2,
-              title: 'Vehicle Listing',
-              subtitle: 'Step 2 of 2 · Details & Pricing',
-              rightTag: 'Draft Saved',
+              title: 'Photos, Documents & Preview',
+              subtitle: 'Step 2 of 2 · Upload & Confirm',
+              rightTag: 'Step 2',
             ),
             const SizedBox(height: 18),
             SectionHeader(
-              title: 'Vehicle Photos',
-              trailing: '1 / 4 min required',
-              trailingColor: AppColors.textMuted,
+              title: '1. Vehicle Photos Gallery',
+              trailing: '${ob.photoUrls.length} Photos Added',
+              trailingColor: AppColors.primary,
             ),
             const SizedBox(height: 4),
-            Text('High-quality photos increase bookings by up to 40%.',
+            Text('Upload real photos of your vehicle to attract guest bookings.',
                 style: AppText.body.copyWith(fontSize: 10)),
             const SizedBox(height: 10),
+            if (ob.uploadingPhoto)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(
+                  child: Column(
+                    children: [
+                      CircularProgressIndicator(color: AppColors.primary),
+                      SizedBox(height: 6),
+                      Text('Uploading photo to Cloudinary...', style: TextStyle(fontSize: 11)),
+                    ],
+                  ),
+                ),
+              ),
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,
@@ -49,321 +180,219 @@ class VehiclePhotosScreen extends StatelessWidget {
               mainAxisSpacing: 10,
               crossAxisSpacing: 10,
               childAspectRatio: 1.55,
-              children: const [
-                _Slot(label: 'Cover', sublabel: 'Front Angle', filled: true),
-                _Slot(label: 'Interior / Cockpit', sublabel: 'Dashboard & seats'),
-                _Slot(label: 'Rear & Trunk', sublabel: 'Cargo & charging'),
-                _Slot(label: 'Add More Angles', sublabel: 'Up to 10 total', isAdd: true),
-              ],
-            ),
-            const SizedBox(height: 18),
-            SectionHeader(
-              title: 'Body & Class Type',
-              trailing: 'Select one',
-              trailingColor: AppColors.textMuted,
-            ),
-            const SizedBox(height: 10),
-            GridView.count(
-              crossAxisCount: 3,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 8,
-              crossAxisSpacing: 8,
-              childAspectRatio: 1.5,
               children: [
-                for (final (label, icon) in [
-                  ('EV', Icons.bolt_rounded),
-                  ('Sedan', Icons.directions_car_rounded),
-                  ('SUV', Icons.airport_shuttle_rounded),
-                  ('Luxury', Icons.diamond_outlined),
-                  ('Hatchback', Icons.directions_car_outlined),
-                  ('Convertible', Icons.wb_sunny_outlined),
-                ])
-                  SelectChip(
-                    label: label,
-                    icon: icon,
-                    selected: ob.bodyType == label || (label == 'EV' && ob.bodyType == 'Electric'),
-                    onTap: () =>
-                        context.read<OnboardingController>().setBodyType(label),
+                for (int i = 0; i < ob.photoUrls.length; i++)
+                  _PhotoThumbnail(
+                    url: ob.photoUrls[i],
+                    index: i,
+                    onDelete: () => context.read<OnboardingController>().removePhotoUrl(i),
                   ),
+                _AddPhotoTile(onTap: () => _showAddPhotoOptions(context)),
               ],
             ),
-            const SizedBox(height: 18),
-            Text('Vehicle Specifications', style: AppText.sectionTitle),
+            const SizedBox(height: 22),
+            SectionHeader(
+              title: '2. Vehicle Documents Verification',
+              trailing: '${ob.uploadedDocUrls.length} / 4 Uploaded',
+            ),
             const SizedBox(height: 4),
-            Text('Required for plate validation and registration compliance.',
+            Text('Upload required legal documents for compliance verification.',
                 style: AppText.body.copyWith(fontSize: 10)),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: AppDropdownField(
-                    label: 'Brand / Make',
-                    value: ob.make.isEmpty ? null : ob.make,
-                    hint: 'Porsche',
-                    items: const ['Porsche', 'BMW', 'Tesla', 'Mercedes', 'Audi'],
-                    onChanged: (v) => ob.make = v ?? '',
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: AppDropdownField(
-                    label: 'Model',
-                    value: ob.model.isEmpty ? null : ob.model,
-                    hint: 'Taycan 4S',
-                    items: const ['Taycan 4S', 'i4 M50', 'Model S Plaid'],
-                    onChanged: (v) => ob.model = v ?? '',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: AppDropdownField(
-                    label: 'Year',
-                    value: ob.year.isEmpty ? null : ob.year,
-                    hint: '2024',
-                    items: const ['2025', '2024', '2023', '2022'],
-                    onChanged: (v) => ob.year = v ?? '',
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: AppDropdownField(
-                    label: 'Transmission',
-                    value: ob.transmission.isEmpty ? null : ob.transmission,
-                    hint: 'Automatic (EV)',
-                    items: const ['Automatic (EV)', 'Automatic', 'Manual'],
-                    onChanged: (v) => ob.transmission = v ?? '',
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            AppTextField(
-              label: 'Registration / License Plate',
-              hint: 'DL 01 AB 1234',
-              onChanged: (v) => ob.plate = v,
-              suffix: Container(
-                margin: const EdgeInsets.all(10),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.successSoft,
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text('GOVT. VERIFIED',
-                    style: AppText.captionCaps
-                        .copyWith(color: AppColors.success, fontSize: 7.5)),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text('Pickup & Handover Location', style: AppText.sectionTitle),
-            const SizedBox(height: 4),
-            Text('Where guests collect and return the vehicle.',
-                style: AppText.body.copyWith(fontSize: 10)),
-            const SizedBox(height: 12),
-            AppTextField(
-              label: 'Base Address',
-              hint: '124 Market St, Financial District, San Fr…',
-              prefix: const Icon(Icons.location_on_outlined,
-                  size: 17, color: AppColors.primary),
-              suffix: const Icon(Icons.gps_fixed_rounded,
-                  size: 16, color: AppColors.textMuted),
-              onChanged: (v) => ob.pickupAddress = v,
-            ),
-            const SizedBox(height: 12),
-            AppCard(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              child: Row(
-                children: [
-                  const Icon(Icons.local_shipping_outlined,
-                      size: 18, color: AppColors.primary),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Host Delivery Service',
-                            style: AppText.sectionTitle
-                                .copyWith(fontSize: 12.5)),
-                        Text('Deliver the car to the guest location (+\$35)',
-                            style: AppText.body.copyWith(fontSize: 10)),
-                      ],
-                    ),
-                  ),
-                  AppToggle(
-                    value: ob.hostDelivery,
-                    onChanged: (v) => context
-                        .read<OnboardingController>()
-                        .setHostDelivery(v),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 18),
-            SectionHeader(
-              title: 'Pricing & Earnings',
-              trailing: 'Recommended \$110 - \$140',
-            ),
-            const SizedBox(height: 12),
-            AppTextField(
-              label: 'Daily Rental Rate',
-              hint: '\$ ${ob.dailyRate.toStringAsFixed(0)}',
-              keyboardType: TextInputType.number,
-              suffix: Text('/ day',
-                  style: AppText.body
-                      .copyWith(fontSize: 11, color: AppColors.textMuted)),
-              onChanged: (v) => ob.dailyRate = double.tryParse(v) ?? ob.dailyRate,
-            ),
-            const SizedBox(height: 12),
-            AppCard(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Allow Hourly Rentals',
-                            style: AppText.sectionTitle
-                                .copyWith(fontSize: 12.5)),
-                        Text('\$22/hr · 3hr minimum',
-                            style: AppText.body.copyWith(fontSize: 10)),
-                      ],
-                    ),
-                  ),
-                  AppToggle(
-                    value: ob.hourlyRentals,
-                    onChanged: (v) => context
-                        .read<OnboardingController>()
-                        .setHourlyRentals(v),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            AppCard(
-              color: AppColors.primarySoft,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            if (ob.uploadingDoc)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Center(
+                  child: Column(
                     children: [
-                      Text('EST. MONTHLY HOST EARNINGS',
-                          style: AppText.captionCaps
-                              .copyWith(color: AppColors.primary)),
-                      const SizedBox(height: 3),
-                      Text('~\$${ob.estimatedMonthly.toStringAsFixed(0)} /mo',
-                          style:
-                              AppText.screenTitle.copyWith(fontSize: 18)),
+                      CircularProgressIndicator(color: AppColors.primary),
+                      SizedBox(height: 6),
+                      Text('Uploading document...', style: TextStyle(fontSize: 11)),
                     ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.card,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text('80%\noccupancy',
-                        textAlign: TextAlign.center,
-                        style: AppText.captionCaps.copyWith(
-                            color: AppColors.textSecondary,
-                            fontSize: 8,
-                            height: 1.2)),
-                  ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
-            AppCard(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text('Listing & Telematics Setup',
-                                style: AppText.sectionTitle
-                                    .copyWith(fontSize: 12.5)),
-                            const SizedBox(width: 6),
-                            Text('ONE-TIME',
-                                style: AppText.captionCaps
-                                    .copyWith(fontSize: 7.5)),
-                          ],
-                        ),
-                        const SizedBox(height: 3),
-                        Text('AYO Smart Key Box & Live GPS Hardware Kit',
-                            style: AppText.body.copyWith(fontSize: 10)),
-                        const SizedBox(height: 8),
-                        Row(
+            for (final docType in ['RC', 'DL', 'INSURANCE', 'POLLUTION'])
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: AppCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: [
+                      Icon(
+                        docType == 'RC'
+                            ? Icons.badge_outlined
+                            : docType == 'DL'
+                                ? Icons.credit_card_rounded
+                                : docType == 'INSURANCE'
+                                    ? Icons.shield_outlined
+                                    : Icons.cloud_outlined,
+                        color: ob.uploadedDocUrls.containsKey(docType)
+                            ? AppColors.success
+                            : AppColors.primary,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Icon(Icons.check_circle_rounded,
-                                size: 12, color: AppColors.primary),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                'Includes \$1,000,000 Host Protection Guarantee and 24/7 emergency roadside recovery.',
-                                style: AppText.body.copyWith(
-                                    fontSize: 9.5,
-                                    color: AppColors.textMuted),
+                            Text(
+                              docType == 'RC'
+                                  ? 'Registration Certificate (RC)'
+                                  : docType == 'DL'
+                                      ? "Host Driver's License"
+                                      : docType == 'INSURANCE'
+                                          ? 'Commercial Insurance'
+                                          : 'Pollution / Smog Check',
+                              style: AppText.sectionTitle.copyWith(fontSize: 12),
+                            ),
+                            Text(
+                              ob.uploadedDocUrls.containsKey(docType)
+                                  ? '✓ Document Uploaded'
+                                  : 'Document Required',
+                              style: AppText.body.copyWith(
+                                fontSize: 9.5,
+                                color: ob.uploadedDocUrls.containsKey(docType)
+                                    ? AppColors.success
+                                    : AppColors.textMuted,
                               ),
                             ),
                           ],
                         ),
-                      ],
-                    ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () => _pickAndUploadDoc(context, docType),
+                        icon: Icon(
+                          ob.uploadedDocUrls.containsKey(docType)
+                              ? Icons.check_circle_rounded
+                              : Icons.upload_file_rounded,
+                          size: 13,
+                        ),
+                        label: Text(
+                          ob.uploadedDocUrls.containsKey(docType) ? 'Uploaded' : 'Upload',
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: ob.uploadedDocUrls.containsKey(docType)
+                              ? AppColors.success
+                              : AppColors.primary,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(width: 10),
-                  Text(
-                    '\$${OnboardingController.listingFee.toStringAsFixed(2)}',
-                    style: AppText.screenTitle.copyWith(fontSize: 17),
+                ),
+              ),
+            const SizedBox(height: 22),
+            Text('3. Listing Full Preview', style: AppText.sectionTitle),
+            const SizedBox(height: 4),
+            Text('Preview your vehicle listing card as displayed to guests and admin.',
+                style: AppText.body.copyWith(fontSize: 10)),
+            const SizedBox(height: 12),
+            AppCard(
+              padding: const EdgeInsets.all(14),
+              color: AppColors.primarySoft.withValues(alpha: 0.3),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          width: 90,
+                          height: 68,
+                          color: AppColors.fieldFill,
+                          child: ob.photoUrls.isNotEmpty
+                              ? Image.network(
+                                  ob.photoUrls.first,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => const Icon(
+                                    Icons.directions_car_rounded,
+                                    size: 32,
+                                    color: AppColors.textMuted,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.directions_car_rounded,
+                                  size: 32,
+                                  color: AppColors.textMuted,
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '${ob.make} ${ob.model}',
+                              style: AppText.screenTitle.copyWith(fontSize: 16),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${ob.year} · ${ob.bodyType} · ${ob.transmission}',
+                              style: AppText.body.copyWith(
+                                fontSize: 11,
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              '${ob.plateState.split(' - ').first} ${ob.plate}',
+                              style: AppText.captionCaps.copyWith(
+                                fontSize: 9.5,
+                                color: AppColors.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const StatusPill(label: 'PREVIEW', kind: StatusKind.neutral),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Divider(),
+                  _SpecRow(label: 'Pickup Location', value: ob.pickupAddress),
+                  _SpecRow(label: 'Daily Rate', value: '₹${ob.dailyRate.toInt()} / day'),
+                  _SpecRow(
+                    label: 'Documents Uploaded',
+                    value: '${ob.uploadedDocUrls.length} / 4 Verified',
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 22),
             PrimaryButton(
-              label:
-                  'Pay & List Vehicle · \$${OnboardingController.listingFee.toStringAsFixed(2)}',
-              icon: Icons.arrow_forward_rounded,
+              label: 'Submit Listing & Go to Home',
+              icon: Icons.check_circle_rounded,
               loading: ob.saving,
               onPressed: () async {
                 final ctrl = context.read<OnboardingController>();
                 final ok = await ctrl.submitListing();
                 if (context.mounted && ok) {
-                  Navigator.pushNamed(context, PayoutSetupScreen.route);
+                  // Refresh fleet list on dashboard
+                  await context.read<DashboardController>().load();
+
+                  if (context.mounted) {
+                    Navigator.pushNamedAndRemoveUntil(
+                      context,
+                      MainShell.route,
+                      (r) => false,
+                    );
+                  }
                 }
               },
             ),
             const SizedBox(height: 12),
             Center(
-              child: Text.rich(
-                TextSpan(
-                  style: AppText.body
-                      .copyWith(fontSize: 9.5, color: AppColors.textMuted),
-                  children: [
-                    const TextSpan(
-                        text: 'By listing, you agree to AYO\'s '),
-                    TextSpan(
-                        text: 'Host Agreement',
-                        style: TextStyle(color: AppColors.primary)),
-                    const TextSpan(text: ' and '),
-                    TextSpan(
-                        text: 'Safety Standards',
-                        style: TextStyle(color: AppColors.primary)),
-                  ],
-                ),
+              child: Text(
+                'Submitting sends full vehicle details, photos, and document links to Ayo backend.',
+                style: AppText.body.copyWith(fontSize: 9.5, color: AppColors.textMuted),
                 textAlign: TextAlign.center,
               ),
             ),
@@ -374,51 +403,126 @@ class VehiclePhotosScreen extends StatelessWidget {
   }
 }
 
-class _Slot extends StatelessWidget {
-  const _Slot({
-    required this.label,
-    required this.sublabel,
-    this.filled = false,
-    this.isAdd = false,
+class _PhotoThumbnail extends StatelessWidget {
+  const _PhotoThumbnail({
+    required this.url,
+    required this.index,
+    required this.onDelete,
   });
 
-  final String label;
-  final String sublabel;
-  final bool filled;
-  final bool isAdd;
+  final String url;
+  final int index;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: filled ? AppColors.primarySoft : AppColors.card,
+        color: AppColors.card,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: filled ? AppColors.primaryBorder : AppColors.cardBorder,
-        ),
+        border: Border.all(color: AppColors.primaryBorder),
       ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              isAdd
-                  ? Icons.add_rounded
-                  : filled
-                      ? Icons.check_circle_rounded
-                      : Icons.add_photo_alternate_outlined,
-              size: 22,
-              color: filled ? AppColors.primary : AppColors.textMuted,
+      child: Stack(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(11),
+            child: Image.network(
+              url,
+              width: double.infinity,
+              height: double.infinity,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => const Center(
+                child: Icon(Icons.directions_car_rounded, color: AppColors.textMuted),
+              ),
             ),
-            const SizedBox(height: 4),
-            Text(label,
-                style: AppText.captionCaps.copyWith(
-                    color: AppColors.textSecondary, fontSize: 8.5)),
-            Text(sublabel,
-                style: AppText.body
-                    .copyWith(fontSize: 8.5, color: AppColors.textMuted)),
+          ),
+          Positioned(
+            top: 6,
+            left: 6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                index == 0 ? 'COVER' : 'PHOTO ${index + 1}',
+                style: const TextStyle(fontSize: 8, color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 4,
+            right: 4,
+            child: InkWell(
+              onTap: onDelete,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: const BoxDecoration(
+                  color: Colors.black54,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.close_rounded, size: 14, color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddPhotoTile extends StatelessWidget {
+  const _AddPhotoTile({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.primarySoft,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.primaryBorder),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: const [
+            Icon(Icons.add_a_photo_outlined, color: AppColors.primary, size: 24),
+            SizedBox(height: 4),
+            Text('Upload Photo', style: TextStyle(fontSize: 10, color: AppColors.primary, fontWeight: FontWeight.bold)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SpecRow extends StatelessWidget {
+  const _SpecRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: AppText.body.copyWith(fontSize: 11, color: AppColors.textMuted)),
+          Flexible(
+            child: Text(
+              value.isEmpty ? '—' : value,
+              style: AppText.body.copyWith(fontSize: 11, fontWeight: FontWeight.w600),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
       ),
     );
   }

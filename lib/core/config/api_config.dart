@@ -1,10 +1,13 @@
 class ApiConfig {
   ApiConfig._();
 
-
-  static const String baseUrl = 'https://costly-internidal-moses.ngrok-free.dev/api/v1';
+  static const String baseUrl = 'https://ayo-platform-api-1015630533512.europe-west1.run.app/api/v1';
   static const bool useMockData = false;
   static const Duration timeout = Duration(seconds: 30);
+
+  // Cloudinary Direct Upload Settings (from Backend API Config)
+  static String cloudinaryCloudName = 'rohitrv7';
+  static String cloudinaryUploadPreset = 'ayo_vehicles';
 
   // Authentication Endpoints
   static const String authExchange = '/auth/exchange';
@@ -37,4 +40,8 @@ class ApiConfig {
 
   // Trips & Handover
   static String tripHandover(String tripId) => '/trips/$tripId/start-handover';
+
+  // Config & Policies Endpoints
+  static const String configSupport = '/config/support';
+  static const String configPolicies = '/config/policies';
 }

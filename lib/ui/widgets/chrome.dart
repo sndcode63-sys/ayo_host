@@ -60,7 +60,13 @@ class StepHeader extends StatelessWidget {
             _CircleIcon(
               icon: Icons.close_rounded,
               onTap: onClose ??
-                  () => Navigator.popUntil(context, (r) => r.isFirst),
+                  () {
+                    if (Navigator.canPop(context)) {
+                      Navigator.pop(context);
+                    } else {
+                      Navigator.pushReplacementNamed(context, '/dashboard');
+                    }
+                  },
             ),
           ],
         ),
@@ -105,7 +111,7 @@ class _CircleIcon extends StatelessWidget {
   }
 }
 
-/// Bottom navigation bar: Dashboard, Fleet, Calendar, Messages, Earnings/More.
+/// Floating & Semi-Transparent Glassmorphic Bottom Navigation Bar: Dashboard, Fleet, More.
 class AyoBottomNav extends StatelessWidget {
   const AyoBottomNav({
     super.key,
@@ -114,8 +120,6 @@ class AyoBottomNav extends StatelessWidget {
     this.items = const [
       (Icons.speed_rounded, 'Dashboard'),
       (Icons.directions_car_filled_rounded, 'Fleet'),
-      (Icons.calendar_month_rounded, 'Calendar'),
-      (Icons.chat_bubble_outline_rounded, 'Messages'),
       (Icons.menu_rounded, 'More'),
     ],
   });
@@ -127,16 +131,26 @@ class AyoBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.card,
-        border: Border(top: BorderSide(color: AppColors.divider)),
+      margin: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        bottom: MediaQuery.of(context).padding.bottom + 12,
       ),
-      padding: EdgeInsets.only(
-        top: 8,
-        bottom: MediaQuery.of(context).padding.bottom + 8,
+      height: 64,
+      decoration: BoxDecoration(
+        color: AppColors.card.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: AppColors.cardBorder.withValues(alpha: 0.8)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           for (var i = 0; i < items.length; i++)
             _NavItem(
@@ -169,22 +183,29 @@ class _NavItem extends StatelessWidget {
     final color = selected ? AppColors.primary : AppColors.navInactive;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        child: Column(
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primarySoft : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 21, color: color),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: AppText.body.copyWith(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: color,
+            Icon(icon, size: 22, color: color),
+            if (selected) ...[
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: AppText.body.copyWith(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),

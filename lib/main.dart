@@ -10,6 +10,7 @@ import 'ui/screens/auth/sign_in_screen.dart';
 import 'ui/screens/auth/splash_screen.dart';
 import 'ui/screens/dashboard/main_shell.dart';
 import 'ui/screens/documents/vehicle_documents_screen.dart';
+import 'ui/screens/insights/performance_insights_screen.dart';
 import 'ui/screens/menu/more_menu_screen.dart';
 import 'ui/screens/onboarding/host_profile_setup_screen.dart';
 import 'ui/screens/onboarding/payout_setup_screen.dart';
@@ -73,6 +74,7 @@ class AyoHostApp extends StatelessWidget {
           VehicleDocumentsScreen.route: (_) => const VehicleDocumentsScreen(),
           MoreMenuScreen.route: (_) => const MoreMenuScreen(),
           AccountDetailsScreen.route: (_) => const AccountDetailsScreen(),
+          PerformanceInsightsScreen.route: (_) => const PerformanceInsightsScreen(),
         },
       ),
     );

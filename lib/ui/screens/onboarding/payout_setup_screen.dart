@@ -22,7 +22,7 @@ class PayoutSetupScreen extends StatefulWidget {
 }
 
 class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
-  final _upiController = TextEditingController(text: 'rohit@okaxis');
+  final _upiController = TextEditingController();
   final _accountNumberController = TextEditingController();
   final _ifscController = TextEditingController();
   final _accountHolderController = TextEditingController();
@@ -42,7 +42,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
     final ctrl = context.read<OnboardingController>();
     final upi = _upiController.text.trim();
     if (upi.isEmpty) {
-      ToastService.showWarning('Please enter a UPI ID');
+      ToastService.showWarning('Please enter a UPI ID (e.g. name@upi)');
       return;
     }
     await ctrl.verifyUpi(upi);
@@ -93,6 +93,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
   @override
   Widget build(BuildContext context) {
     final ob = context.watch<OnboardingController>();
+    final profile = context.watch<ProfileController>().profile;
 
     return Scaffold(
       body: SafeArea(
@@ -102,7 +103,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
             const StepHeader(
               step: 2,
               totalSteps: 2,
-              title: 'AYO  Host Onboarding',
+              title: 'AYO Host Onboarding',
               subtitle: 'Step 2 of 2 · Payout Setup',
               rightTag: 'Final Step',
             ),
@@ -110,7 +111,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
             Text('Verify Payout Details', style: AppText.screenTitle),
             const SizedBox(height: 4),
             Text(
-              'Choose how you would like to receive your host rental earnings. Payouts are transferred automatically within 24 hours of trip completion.',
+              'Choose how you would like to receive your host rental earnings. Payouts are transferred automatically upon trip completion.',
               style: AppText.body.copyWith(fontSize: 11),
             ),
             const SizedBox(height: 16),
@@ -135,114 +136,138 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text('UPI ID / VIRTUAL PAYMENT ADDRESS',
-                    style: AppText.fieldLabel),
-                Text('Zero processing fee',
-                    style: AppText.captionCaps
-                        .copyWith(color: AppColors.success, fontSize: 8.5)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _upiController,
-                    style: AppText.input.copyWith(
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600),
-                    decoration: InputDecoration(
-                      filled: true,
-                      fillColor: AppColors.card,
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 13),
-                      prefixIcon: const Icon(Icons.alternate_email_rounded,
-                          size: 17, color: AppColors.primary),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            const BorderSide(color: AppColors.primaryBorder),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide:
-                            const BorderSide(color: AppColors.primaryBorder),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                            color: AppColors.primary, width: 1.2),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  height: 46,
-                  child: ElevatedButton(
-                    onPressed: ob.verifyingUpi ? null : _verify,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    child: ob.verifyingUpi
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: Colors.white))
-                        : Text('Verify',
-                            style: AppText.button.copyWith(fontSize: 12)),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            AppCard(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Row(
+            if (_upiTab) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Icon(Icons.verified_user_outlined,
-                      size: 17, color: AppColors.success),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Registered Account Name',
-                            style: AppText.captionCaps.copyWith(fontSize: 8.5)),
-                        Text('Marcus Vance',
-                            style: AppText.input
-                                .copyWith(fontWeight: FontWeight.w600)),
-                      ],
-                    ),
-                  ),
-                  if (ob.upiVerified)
-                    const StatusPill(
-                        label: 'Active', kind: StatusKind.danger),
+                  Text('UPI ID / VIRTUAL PAYMENT ADDRESS',
+                      style: AppText.fieldLabel),
+                  Text('Zero processing fee',
+                      style: AppText.captionCaps
+                          .copyWith(color: AppColors.success, fontSize: 8.5)),
                 ],
               ),
-            ),
-            const SizedBox(height: 18),
-            Text('SUPPORTED UPI PROVIDERS', style: AppText.fieldLabel),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: const [
-                _ProviderLogo('GPay', Color(0xFF4285F4)),
-                _ProviderLogo('PhonePe', Color(0xFF5F259F)),
-                _ProviderLogo('Paytm', Color(0xFF00B9F1)),
-                _ProviderLogo('BHIM', Color(0xFFED752E)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _upiController,
+                      style: AppText.input.copyWith(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600),
+                      decoration: InputDecoration(
+                        hintText: 'yourname@upi',
+                        filled: true,
+                        fillColor: AppColors.card,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 13),
+                        prefixIcon: const Icon(Icons.alternate_email_rounded,
+                            size: 17, color: AppColors.primary),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide:
+                              const BorderSide(color: AppColors.primaryBorder),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide:
+                              const BorderSide(color: AppColors.primaryBorder),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                              color: AppColors.primary, width: 1.2),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    height: 46,
+                    child: ElevatedButton(
+                      onPressed: ob.verifyingUpi ? null : _verify,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: ob.verifyingUpi
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white))
+                          : Text('Verify',
+                              style: AppText.button.copyWith(fontSize: 12)),
+                    ),
+                  ),
+                ],
+              ),
+              if (profile != null && profile.fullName.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                AppCard(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.verified_user_outlined,
+                          size: 17, color: AppColors.success),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Registered Host Name',
+                                style: AppText.captionCaps.copyWith(fontSize: 8.5)),
+                            Text(profile.fullName,
+                                style: AppText.input
+                                    .copyWith(fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                      if (ob.upiVerified)
+                        const StatusPill(
+                            label: 'Verified', kind: StatusKind.danger),
+                    ],
+                  ),
+                ),
               ],
-            ),
+            ] else ...[
+              Text('BANK ACCOUNT NUMBER', style: AppText.fieldLabel),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _accountNumberController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. 50100234567890',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('IFSC CODE', style: AppText.fieldLabel),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _ifscController,
+                textCapitalization: TextCapitalization.characters,
+                decoration: const InputDecoration(
+                  hintText: 'e.g. HDFC0001234',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('ACCOUNT HOLDER NAME', style: AppText.fieldLabel),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _accountHolderController,
+                decoration: const InputDecoration(
+                  hintText: 'Full Name on Bank Record',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
             const SizedBox(height: 18),
             AppCard(
               color: AppColors.warningSoft,
@@ -269,23 +294,6 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.lock_outline_rounded,
-                    size: 13, color: AppColors.textMuted),
-                const SizedBox(width: 5),
-                Text('256-bit SSL\nEncrypted Data',
-                    style: AppText.captionCaps.copyWith(fontSize: 8)),
-                const SizedBox(width: 18),
-                const Icon(Icons.verified_outlined,
-                    size: 13, color: AppColors.textMuted),
-                const SizedBox(width: 5),
-                Text('RBI Compliant\nDirect Transfer',
-                    style: AppText.captionCaps.copyWith(fontSize: 8)),
-              ],
             ),
             const SizedBox(height: 20),
             PrimaryButton(
@@ -374,33 +382,6 @@ class _Tab extends StatelessWidget {
               ],
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ProviderLogo extends StatelessWidget {
-  const _ProviderLogo(this.name, this.color);
-
-  final String name;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.cardBorder),
-      ),
-      child: Text(
-        name,
-        style: AppText.body.copyWith(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: color,
         ),
       ),
     );
