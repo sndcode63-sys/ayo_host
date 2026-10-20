@@ -9,7 +9,6 @@ import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
 import '../dashboard/main_shell.dart';
 import '../onboarding/host_profile_setup_screen.dart';
-import '../onboarding/payout_setup_screen.dart';
 
 /// AYO Host Sign Up & Login — India Only (+91) Phone Auth + OTP BottomSheet.
 class SignInScreen extends StatefulWidget {
@@ -36,12 +35,14 @@ class _SignInScreenState extends State<SignInScreen> {
     final auth = context.read<AuthController>();
     final status = auth.onboardingStatus;
 
-    if (status == null || !status.profileCompleted) {
+    final hasProfile = (status?.profileCompleted == true) ||
+        (status?.profile != null) ||
+        (auth.host != null && auth.host!.firstName.isNotEmpty) ||
+        (auth.user?.name != null && auth.user!.name!.isNotEmpty);
+
+    if (!hasProfile) {
       ToastService.showSuccess('Welcome! Please complete your host profile.');
       Navigator.pushReplacementNamed(context, HostProfileSetupScreen.route);
-    } else if (!status.payoutCompleted) {
-      ToastService.showInfo('Please configure your payout method.');
-      Navigator.pushReplacementNamed(context, PayoutSetupScreen.route);
     } else {
       ToastService.showSuccess('Welcome back!');
       Navigator.pushReplacementNamed(context, MainShell.route);

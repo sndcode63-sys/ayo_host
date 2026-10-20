@@ -6,7 +6,6 @@ import '../../../data/services/auth_service.dart';
 import '../../../data/services/host_service.dart';
 import '../dashboard/main_shell.dart';
 import '../onboarding/host_profile_setup_screen.dart';
-import '../onboarding/payout_setup_screen.dart';
 import 'sign_in_screen.dart';
 
 /// Red splash shown at cold start; auto-routes to Sign In or Home.
@@ -50,10 +49,9 @@ class _SplashScreenState extends State<SplashScreen>
       try {
         final status = await HostService.getOnboardingStatus();
         if (!mounted) return;
-        if (!status.profileCompleted) {
+        final hasProfile = status.profileCompleted || status.profile != null;
+        if (!hasProfile) {
           Navigator.pushReplacementNamed(context, HostProfileSetupScreen.route);
-        } else if (!status.payoutCompleted) {
-          Navigator.pushReplacementNamed(context, PayoutSetupScreen.route);
         } else {
           Navigator.pushReplacementNamed(context, MainShell.route);
         }
