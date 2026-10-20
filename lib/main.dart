@@ -31,11 +31,19 @@ void main() async {
     debugPrint('Firebase init error: $e');
   }
   await ApiClient.initialize();
+  ApiClient.onUnauthorized = () {
+    AyoHostApp.navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      SignInScreen.route,
+      (route) => false,
+    );
+  };
   runApp(const AyoHostApp());
 }
 
 class AyoHostApp extends StatelessWidget {
   const AyoHostApp({super.key});
+
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   @override
   Widget build(BuildContext context) {
@@ -60,6 +68,7 @@ class AyoHostApp extends StatelessWidget {
       child: MaterialApp(
         title: 'AYO Host',
         debugShowCheckedModeBanner: false,
+        navigatorKey: AyoHostApp.navigatorKey,
         scaffoldMessengerKey: AppToast.messengerKey,
         theme: AppTheme.light,
         initialRoute: SplashScreen.route,

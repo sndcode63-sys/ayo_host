@@ -159,17 +159,39 @@ class HostService {
       final response = await ApiClient.instance.get(ApiConfig.hostProfile);
 
       final profileData = response['data'];
-      final profileMap = profileData is Map && profileData.containsKey('profile')
+      if (profileData == null) {
+        return const HostProfile(
+          id: '',
+          firstName: '',
+          lastName: '',
+          city: '',
+          bio: '',
+          step: 0,
+          isCompleted: false,
+        );
+      }
+
+      final profileMap = (profileData is Map && profileData.containsKey('profile'))
           ? profileData['profile']
           : profileData;
 
-      final profile = HostProfile.fromJson(profileMap as Map<String, dynamic>);
+      final profile = HostProfile.fromJson(
+        profileMap is Map<String, dynamic> ? profileMap : null,
+      );
 
       LoggerService.info('Host profile fetched successfully');
       return profile;
     } catch (e) {
       LoggerService.error('Failed to fetch host profile', error: e);
-      rethrow;
+      return const HostProfile(
+        id: '',
+        firstName: '',
+        lastName: '',
+        city: '',
+        bio: '',
+        step: 0,
+        isCompleted: false,
+      );
     }
   }
 
@@ -250,7 +272,9 @@ class HostService {
       final response =
           await ApiClient.instance.get(ApiConfig.onboardingStatus);
 
-      final status = OnboardingStatus.fromJson(response['data'] ?? {});
+      final status = OnboardingStatus.fromJson(
+        (response['data'] is Map<String, dynamic>) ? response['data'] : {},
+      );
 
       LoggerService.info(
         'Onboarding status: ${status.onboardingCompleted}, Step: ${status.currentStep}',
@@ -259,7 +283,13 @@ class HostService {
       return status;
     } catch (e) {
       LoggerService.error('Failed to fetch onboarding status', error: e);
-      rethrow;
+      return const OnboardingStatus(
+        onboardingCompleted: false,
+        currentStep: '1',
+        profileCompleted: false,
+        payoutCompleted: false,
+        kycStatus: 'NOT_STARTED',
+      );
     }
   }
 

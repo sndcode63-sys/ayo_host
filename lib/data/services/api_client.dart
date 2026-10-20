@@ -12,6 +12,8 @@ class ApiClient {
   static final ApiClient _instance = ApiClient._();
   static ApiClient get instance => _instance;
 
+  static void Function()? onUnauthorized;
+
   late final Dio _dio;
 
   static Future<void> initialize() async {
@@ -214,6 +216,7 @@ class _ErrorInterceptor extends Interceptor {
           if (errorMessage == 'Something went wrong') {
             errorMessage = 'Session expired. Please login again.';
           }
+          ApiClient.onUnauthorized?.call();
         } else if (errorMessage == 'Something went wrong') {
           if (statusCode == 403) {
             errorMessage = 'Access denied. You don\'t have permission.';

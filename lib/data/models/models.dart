@@ -44,28 +44,39 @@ class HostProfile {
       '${firstName.isNotEmpty ? firstName[0] : ''}${lastName.isNotEmpty ? lastName[0] : ''}'
           .toUpperCase();
 
-  factory HostProfile.fromJson(Map<String, dynamic> json) {
+  factory HostProfile.fromJson(Map<String, dynamic>? json) {
+    if (json == null) {
+      return const HostProfile(
+        id: '',
+        firstName: '',
+        lastName: '',
+        city: '',
+        bio: '',
+        step: 0,
+        isCompleted: false,
+      );
+    }
     final avatarUrlValue = json['avatar_url'] ?? json['photoUrl'];
     final photoUrlValue = json['photoUrl'] ?? json['avatar_url'];
     return HostProfile(
-      id: json['id'] ?? '',
-      firstName: json['first_name'] ?? json['firstName'] ?? '',
-      lastName: json['last_name'] ?? json['lastName'] ?? '',
-      email: json['email'],
-      phone: json['phone'],
-      dob: json['dob'],
-      city: json['city'] ?? '',
-      bio: json['bio'] ?? '',
-      avatarUrl: avatarUrlValue,
-      photoUrl: photoUrlValue,
-      payoutMethod: json['payout_method'] ?? json['payoutMethod'],
-      step: json['step'] ?? 0,
+      id: json['id']?.toString() ?? '',
+      firstName: json['first_name']?.toString() ?? json['firstName']?.toString() ?? '',
+      lastName: json['last_name']?.toString() ?? json['lastName']?.toString() ?? '',
+      email: json['email']?.toString(),
+      phone: json['phone']?.toString(),
+      dob: json['dob']?.toString(),
+      city: json['city']?.toString() ?? '',
+      bio: json['bio']?.toString() ?? '',
+      avatarUrl: avatarUrlValue?.toString(),
+      photoUrl: photoUrlValue?.toString(),
+      payoutMethod: json['payout_method']?.toString() ?? json['payoutMethod']?.toString(),
+      step: json['step'] is int ? json['step'] : int.tryParse(json['step']?.toString() ?? '0') ?? 0,
       isCompleted: json['is_completed'] ?? json['isCompleted'] ?? false,
-      tier: json['tier'] ?? 'Superhost',
+      tier: json['tier']?.toString() ?? 'Superhost',
       rating: (json['rating'] ?? json['rating_avg'] ?? 4.98).toDouble(),
       reviewCount: json['reviewCount'] ?? json['rating_count'] ?? 86,
       responseRate: (json['responseRate'] ?? 99.0).toDouble(),
-      memberSince: json['memberSince'] ?? '2024',
+      memberSince: json['memberSince']?.toString() ?? '2024',
     );
   }
 }
@@ -467,6 +478,8 @@ class OnboardingStatus {
   final bool profileCompleted;
   final bool payoutCompleted;
   final String kycStatus;
+  final String message;
+  final String estimatedVerificationTime;
   final HostProfile? profile;
   final dynamic payout;
 
@@ -476,6 +489,8 @@ class OnboardingStatus {
     required this.profileCompleted,
     required this.payoutCompleted,
     required this.kycStatus,
+    this.message = '',
+    this.estimatedVerificationTime = '',
     this.profile,
     this.payout,
   });
@@ -484,14 +499,17 @@ class OnboardingStatus {
       OnboardingStatus(
         onboardingCompleted:
             json['onboarding_completed'] ?? json['onboardingCompleted'] ?? false,
-        currentStep: json['current_step'] ?? json['currentStep'] ?? '',
+        currentStep: (json['current_step'] ?? json['currentStep'] ?? '').toString(),
         profileCompleted:
             json['profile_completed'] ?? json['profileCompleted'] ?? false,
         payoutCompleted:
             json['payout_completed'] ?? json['payoutCompleted'] ?? false,
-        kycStatus: json['kyc_status'] ?? json['kycStatus'] ?? 'NOT_STARTED',
-        profile: json['profile'] != null
-            ? HostProfile.fromJson(json['profile'])
+        kycStatus: (json['kyc_status'] ?? json['kycStatus'] ?? 'NOT_STARTED').toString(),
+        message: (json['message'] ?? '').toString(),
+        estimatedVerificationTime:
+            (json['estimated_verification_time'] ?? json['estimated_time'] ?? '').toString(),
+        profile: json['profile'] != null && json['profile'] is Map<String, dynamic>
+            ? HostProfile.fromJson(json['profile'] as Map<String, dynamic>)
             : null,
         payout: json['payout'],
       );

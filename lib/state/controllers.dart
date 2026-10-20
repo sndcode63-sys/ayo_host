@@ -192,6 +192,7 @@ class DashboardController extends ChangeNotifier {
   HostProfile? hostProfile;
   SupportConfig? supportConfig;
   PlatformPolicies? platformPolicies;
+  OnboardingStatus? onboardingStatus;
   bool loading = false;
   String? error;
 
@@ -239,6 +240,16 @@ class DashboardController extends ChangeNotifier {
             currency: 'INR',
           );
         }),
+        HostService.getOnboardingStatus().catchError((e) {
+          LoggerService.error('Fetch onboarding status error', error: e);
+          return const OnboardingStatus(
+            onboardingCompleted: false,
+            currentStep: '1',
+            profileCompleted: false,
+            payoutCompleted: false,
+            kycStatus: 'NOT_STARTED',
+          );
+        }),
       ]);
 
       vehicles = results[0] as List<Vehicle>;
@@ -246,6 +257,7 @@ class DashboardController extends ChangeNotifier {
       hostProfile = results[2] as HostProfile;
       supportConfig = results[3] as SupportConfig;
       platformPolicies = results[4] as PlatformPolicies;
+      onboardingStatus = results[5] as OnboardingStatus;
 
       Handover? nextHandover;
       if (upcomingTrips.isNotEmpty) {
@@ -423,6 +435,7 @@ class OnboardingController extends ChangeNotifier {
   bool pincodeLoading = false;
   bool verifyingUpi = false;
   bool upiVerified = false;
+  String? lastError;
 
   static const double listingFeeRupees = 0.00;
   static const double listingFee = listingFeeRupees;
@@ -617,6 +630,7 @@ class OnboardingController extends ChangeNotifier {
     }
 
     saving = true;
+    lastError = null;
     notifyListeners();
     try {
       final ratePaise = (dailyRate * 100).round();
@@ -667,6 +681,7 @@ class OnboardingController extends ChangeNotifier {
       ToastService.showSuccess('Vehicle submitted for review! Check fleet status on Dashboard.');
       return true;
     } catch (e) {
+      lastError = e.toString();
       return false;
     } finally {
       saving = false;

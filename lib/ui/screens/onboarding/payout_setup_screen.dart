@@ -8,6 +8,7 @@ import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
 import '../../widgets/chrome.dart';
 import '../dashboard/main_shell.dart';
+import 'vehicle_details_screen.dart';
 import '../../../data/services/host_service.dart';
 import '../../../core/services/toast_service.dart';
 
@@ -79,9 +80,9 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
         );
       }
 
-      ToastService.showSuccess('Payout setup complete!');
+      ToastService.showSuccess('Payout setup complete! Proceeding to Step 3: List your vehicle.');
       if (mounted) {
-        Navigator.pushReplacementNamed(context, MainShell.route);
+        Navigator.pushReplacementNamed(context, VehicleDetailsScreen.route);
       }
     } catch (e) {
       // Toast shown by error interceptor
@@ -100,12 +101,19 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
           children: [
-            const StepHeader(
+            StepHeader(
               step: 2,
-              totalSteps: 2,
+              totalSteps: 3,
               title: 'AYO Host Onboarding',
-              subtitle: 'Step 2 of 2 · Payout Setup',
-              rightTag: 'Final Step',
+              subtitle: 'Step 2 of 3 · Payout & KYC Setup',
+              rightTag: 'Step 2 of 3',
+              onClose: () {
+                if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                } else {
+                  Navigator.pushReplacementNamed(context, MainShell.route);
+                }
+              },
             ),
             const SizedBox(height: 20),
             Text('Verify Payout Details', style: AppText.screenTitle),

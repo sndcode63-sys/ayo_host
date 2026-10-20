@@ -9,6 +9,8 @@ import '../../../state/controllers.dart';
 import '../../widgets/cards.dart';
 import '../account/account_details_screen.dart';
 import '../documents/vehicle_documents_screen.dart';
+import '../onboarding/host_profile_setup_screen.dart';
+import '../onboarding/payout_setup_screen.dart';
 import '../onboarding/vehicle_details_screen.dart';
 
 /// AYO Host Dashboard — revenue, fleet stats, next handover, My Cars, current geolocation.
@@ -229,7 +231,9 @@ class DashboardScreen extends StatelessWidget {
                     _TopBar(hostProfile: dash.hostProfile),
                     const SizedBox(height: 18),
                     _Greeting(stats: dash.stats),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 12),
+                    _OnboardingStatusBanner(status: dash.onboardingStatus),
+                    const SizedBox(height: 16),
                     _RevenueCard(stats: dash.stats, money: _money),
                     const SizedBox(height: 12),
                     _StatsRow(stats: dash.stats),
@@ -441,6 +445,163 @@ class _Greeting extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _OnboardingStatusBanner extends StatelessWidget {
+  const _OnboardingStatusBanner({this.status});
+
+  final OnboardingStatus? status;
+
+  @override
+  Widget build(BuildContext context) {
+    if (status == null) return const SizedBox.shrink();
+
+    final isProfilePending = !status!.profileCompleted && status!.profile == null;
+    final isPayoutPending = status!.profileCompleted && !status!.payoutCompleted && status!.kycStatus == 'NOT_STARTED';
+    final isKycReviewing = status!.kycStatus == 'PENDING';
+    final isVerified = status!.kycStatus == 'VERIFIED' || status!.onboardingCompleted;
+
+    if (isProfilePending) {
+      return AppCard(
+        color: AppColors.warningSoft,
+        child: Row(
+          children: [
+            const CircleAvatar(
+              backgroundColor: AppColors.warning,
+              radius: 18,
+              child: Icon(Icons.person_outline_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Step 1 Remaining: Profile Setup', style: AppText.sectionTitle.copyWith(fontSize: 13, color: AppColors.textPrimary)),
+                  const SizedBox(height: 2),
+                  Text('Set up name, DOB, and profile photo to start', style: AppText.body.copyWith(fontSize: 10.5, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => Navigator.pushNamed(context, HostProfileSetupScreen.route),
+              child: const Text('Complete', style: TextStyle(color: Colors.white, fontSize: 11)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isPayoutPending) {
+      return AppCard(
+        color: AppColors.warningSoft,
+        child: Row(
+          children: [
+            const CircleAvatar(
+              backgroundColor: AppColors.warning,
+              radius: 18,
+              child: Icon(Icons.account_balance_wallet_outlined, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Step 2 Remaining: Payout Setup', style: AppText.sectionTitle.copyWith(fontSize: 13, color: AppColors.textPrimary)),
+                  const SizedBox(height: 2),
+                  Text('Link UPI or Bank Account for automatic payouts', style: AppText.body.copyWith(fontSize: 10.5, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => Navigator.pushNamed(context, PayoutSetupScreen.route),
+              child: const Text('Configure', style: TextStyle(color: Colors.white, fontSize: 11)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isKycReviewing) {
+      final msg = status!.message.isNotEmpty
+          ? status!.message
+          : 'Aapka verification 24 hour me kiya jayega. Hamari team aapke details verify kar rahi hai.';
+      return AppCard(
+        color: AppColors.primarySoft,
+        child: Row(
+          children: [
+            const CircleAvatar(
+              backgroundColor: AppColors.primary,
+              radius: 18,
+              child: Icon(Icons.hourglass_top_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text('KYC Verification Pending', style: AppText.sectionTitle.copyWith(fontSize: 13, color: AppColors.primary)),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text('24h SLA', style: AppText.captionCaps.copyWith(color: Colors.white, fontSize: 8)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(msg, style: AppText.body.copyWith(fontSize: 10.5, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isVerified) {
+      return AppCard(
+        color: AppColors.successSoft,
+        child: Row(
+          children: [
+            const CircleAvatar(
+              backgroundColor: AppColors.success,
+              radius: 16,
+              child: Icon(Icons.check_rounded, color: Colors.white, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Host Account Verified 🟢', style: AppText.sectionTitle.copyWith(fontSize: 13, color: AppColors.success)),
+                  Text('Aapka Host account active hai. Vehicles list karke earning start karein.', style: AppText.body.copyWith(fontSize: 10, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
   }
 }
 

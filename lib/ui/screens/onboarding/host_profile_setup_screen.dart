@@ -135,9 +135,10 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
           children: [
             StepHeader(
               step: 1,
-              totalSteps: 2,
-              title: 'Host Profile Setup',
-              rightTag: 'Step 1 of 2',
+              totalSteps: 3,
+              title: 'AYO Host Onboarding',
+              subtitle: 'Step 1 of 3 · Profile Setup',
+              rightTag: 'Step 1 of 3',
               onClose: () {
                 if (Navigator.canPop(context)) {
                   Navigator.pop(context);

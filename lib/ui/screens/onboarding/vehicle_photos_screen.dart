@@ -29,6 +29,38 @@ class VehiclePhotosScreen extends StatelessWidget {
     await ctrl.uploadPhotoToCloudinary(File(picked.path));
   }
 
+  void _showKycPendingDialog(BuildContext context, String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.verified_user_outlined, color: AppColors.warning, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('KYC Verification Pending', style: AppText.sectionTitle.copyWith(fontSize: 16)),
+            ),
+          ],
+        ),
+        content: Text(
+          message,
+          style: AppText.body.copyWith(fontSize: 12),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+            },
+            child: const Text('Go to Home Dashboard', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _pickAndUploadDoc(BuildContext context, String docType) async {
     final picker = ImagePicker();
     final XFile? picked = await picker.pickImage(
@@ -143,12 +175,19 @@ class VehiclePhotosScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
           children: [
-            const StepHeader(
-              step: 2,
-              totalSteps: 2,
-              title: 'Photos, Documents & Preview',
-              subtitle: 'Step 2 of 2 · Upload & Confirm',
-              rightTag: 'Step 2',
+            StepHeader(
+              step: 3,
+              totalSteps: 3,
+              title: 'AYO Host Onboarding',
+              subtitle: 'Step 3 of 3 · Photos & Legal Documents',
+              rightTag: 'Final Step',
+              onClose: () {
+                if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                } else {
+                  Navigator.pushReplacementNamed(context, MainShell.route);
+                }
+              },
             ),
             const SizedBox(height: 18),
             SectionHeader(
@@ -374,16 +413,24 @@ class VehiclePhotosScreen extends StatelessWidget {
               onPressed: () async {
                 final ctrl = context.read<OnboardingController>();
                 final ok = await ctrl.submitListing();
-                if (context.mounted && ok) {
-                  // Refresh fleet list on dashboard
-                  await context.read<DashboardController>().load();
-
-                  if (context.mounted) {
-                    Navigator.pushNamedAndRemoveUntil(
-                      context,
-                      MainShell.route,
-                      (r) => false,
-                    );
+                if (context.mounted) {
+                  if (ok) {
+                    await context.read<DashboardController>().load();
+                    if (context.mounted) {
+                      Navigator.pushNamedAndRemoveUntil(
+                        context,
+                        MainShell.route,
+                        (r) => false,
+                      );
+                    }
+                  } else {
+                    final err = ctrl.lastError ?? '';
+                    if (err.contains('KYC') || err.contains('HOST_KYC_REQUIRED') || err.contains('Bina KYC')) {
+                      _showKycPendingDialog(
+                        context,
+                        'Bina KYC verification ke vehicle list nahi kar sakte. Aapka Host Onboarding & KYC verification under review hai (SLA: 24 Hours). Admin team dwara verify hote hi aap vehicle live list kar payenge.',
+                      );
+                    }
                   }
                 }
               },

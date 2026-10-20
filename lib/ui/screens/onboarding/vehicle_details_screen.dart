@@ -8,6 +8,7 @@ import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
 import '../../widgets/chrome.dart';
 import '../../widgets/inputs.dart';
+import '../dashboard/main_shell.dart';
 import 'vehicle_photos_screen.dart';
 
 /// AYO Add Vehicle — List Your Vehicle (Step 1 of 2: Details, Custom Class, Pincode & Pricing).
@@ -108,11 +109,19 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
           children: [
-            const StepHeader(
-              step: 1,
-              totalSteps: 2,
-              title: 'List Your Vehicle',
-              subtitle: 'Step 1 of 2 · Specs, Location & Rates',
+            StepHeader(
+              step: 3,
+              totalSteps: 3,
+              title: 'AYO Host Onboarding',
+              subtitle: 'Step 3 of 3 · Vehicle Specs & Rates',
+              rightTag: 'Step 3 of 3',
+              onClose: () {
+                if (Navigator.canPop(context)) {
+                  Navigator.pop(context);
+                } else {
+                  Navigator.pushReplacementNamed(context, MainShell.route);
+                }
+              },
             ),
             const SizedBox(height: 20),
             Text('Vehicle Details', style: AppText.screenTitle),
