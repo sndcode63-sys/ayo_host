@@ -78,6 +78,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(AppRadius.card + 4),
         ),
       ),
+
       pageTransitionsTheme: PageTransitionsTheme(
         builders: {
           TargetPlatform.android: CupertinoPageTransitionsBuilder(),
