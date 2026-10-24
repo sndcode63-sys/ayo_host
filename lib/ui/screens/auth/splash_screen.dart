@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/services/host_service.dart';
+import '../../../state/controllers.dart';
 import '../dashboard/main_shell.dart';
 import '../onboarding/host_profile_setup_screen.dart';
 import 'sign_in_screen.dart';
@@ -47,9 +49,15 @@ class _SplashScreenState extends State<SplashScreen>
       }
 
       try {
+        await context.read<AuthController>().checkSession();
+        if (!mounted) return;
+
         final status = await HostService.getOnboardingStatus();
         if (!mounted) return;
-        final hasProfile = status.profileCompleted || status.profile != null;
+
+        final hasProfile = status.profileCompleted ||
+            (status.profile != null && status.profile!.firstName.isNotEmpty);
+
         if (!hasProfile) {
           Navigator.pushReplacementNamed(context, HostProfileSetupScreen.route);
         } else {

@@ -7,7 +7,9 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/cards.dart';
+import '../../widgets/app_image_view.dart';
 import '../account/account_details_screen.dart';
+import 'fleet_screen.dart';
 import '../documents/vehicle_documents_screen.dart';
 import '../onboarding/host_profile_setup_screen.dart';
 import '../onboarding/payout_setup_screen.dart';
@@ -111,21 +113,12 @@ class DashboardScreen extends StatelessWidget {
                       width: 80,
                       height: 60,
                       color: AppColors.fieldFill,
-                      child: vehicle.imageUrl != null && vehicle.imageUrl!.isNotEmpty
-                          ? Image.network(
-                              vehicle.imageUrl!,
-                              fit: BoxFit.cover,
-                              errorBuilder: (context, error, stackTrace) => const Icon(
-                                Icons.directions_car_rounded,
-                                size: 32,
-                                color: AppColors.textMuted,
-                              ),
-                            )
-                          : const Icon(
-                              Icons.directions_car_rounded,
-                              size: 32,
-                              color: AppColors.textMuted,
-                            ),
+                      child: AppImageView(
+                        url: vehicle.imageUrl,
+                        width: 80,
+                        height: 60,
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -537,7 +530,7 @@ class _OnboardingStatusBanner extends StatelessWidget {
     if (isKycReviewing) {
       final msg = status!.message.isNotEmpty
           ? status!.message
-          : 'Aapka verification 24 hour me kiya jayega. Hamari team aapke details verify kar rahi hai.';
+          : 'Your host KYC verification is in progress. Our team will verify your details within 24 hours.';
       return AppCard(
         color: AppColors.primarySoft,
         child: Row(
@@ -592,7 +585,7 @@ class _OnboardingStatusBanner extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Host Account Verified 🟢', style: AppText.sectionTitle.copyWith(fontSize: 13, color: AppColors.success)),
-                  Text('Aapka Host account active hai. Vehicles list karke earning start karein.', style: AppText.body.copyWith(fontSize: 10, color: AppColors.textSecondary)),
+                  Text('Your host account is active. List vehicles to start earning on AYO.', style: AppText.body.copyWith(fontSize: 10, color: AppColors.textSecondary)),
                 ],
               ),
             ),
@@ -809,52 +802,44 @@ class _CarTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppCard(
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.zero,
       onTap: onTap,
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(9),
-            child: Container(
-              width: 58,
-              height: 46,
-              color: AppColors.fieldFill,
-              child: vehicle.imageUrl != null && vehicle.imageUrl!.isNotEmpty
-                  ? Image.network(
-                      vehicle.imageUrl!,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => const Icon(
-                        Icons.directions_car_rounded,
-                        size: 24,
-                        color: AppColors.textMuted,
-                      ),
-                    )
-                  : const Icon(
-                      Icons.directions_car_rounded,
-                      size: 24,
-                      color: AppColors.textMuted,
-                    ),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            child: AutoSlideVehicleImageCarousel(
+              photos: vehicle.photos,
+              fallbackUrl: vehicle.imageUrl,
+              height: 175,
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
               children: [
-                Text(vehicle.name,
-                    style: AppText.sectionTitle.copyWith(fontSize: 13)),
-                const SizedBox(height: 2),
-                Text(
-                  '₹${vehicle.dailyRate.toInt()}/day · ${vehicle.plate.isNotEmpty ? vehicle.plate : 'Reg Pending'}',
-                  style: AppText.body.copyWith(fontSize: 10, color: AppColors.textSecondary),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(vehicle.name,
+                          style: AppText.sectionTitle.copyWith(fontSize: 14)),
+                      const SizedBox(height: 3),
+                      Text(
+                        '₹${vehicle.dailyRate.toInt()}/day · ${vehicle.plate.isNotEmpty ? vehicle.plate : 'Reg Pending'}',
+                        style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                    ],
+                  ),
                 ),
+                StatusPill.auto(vehicle.status),
+                const SizedBox(width: 6),
+                const Icon(Icons.chevron_right_rounded,
+                    size: 18, color: AppColors.textMuted),
               ],
             ),
           ),
-          StatusPill.auto(vehicle.status),
-          const SizedBox(width: 6),
-          const Icon(Icons.chevron_right_rounded,
-              size: 18, color: AppColors.textMuted),
         ],
       ),
     );

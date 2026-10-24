@@ -47,6 +47,73 @@ class AuthService {
     }
   }
 
+  static Future<AuthResponse> quickLogin({String role = 'HOST'}) async {
+    try {
+      LoggerService.info('Performing quick login as $role');
+
+      final response = await ApiClient.instance.post(
+        ApiConfig.authQuickLogin,
+        data: {'role': role},
+      );
+
+      final authResponse = AuthResponse.fromJson(response['data']);
+
+      await SecureStorageService.saveAccessToken(authResponse.accessToken);
+      await SecureStorageService.saveUserId(authResponse.user.id);
+      await SecureStorageService.saveUserRole(authResponse.user.role);
+
+      LoggerService.info('Quick login success for host: ${authResponse.user.id}');
+      ToastService.showSuccess('Host authenticated successfully');
+
+      return authResponse;
+    } catch (e) {
+      LoggerService.error('Failed to perform quick login', error: e);
+      rethrow;
+    }
+  }
+
+  static Future<User?> getAuthMe() async {
+    try {
+      final response = await ApiClient.instance.get(ApiConfig.authMe);
+      if (response['data'] != null && response['data'] is Map<String, dynamic>) {
+        return User.fromJson(response['data'] as Map<String, dynamic>);
+      }
+      return null;
+    } catch (e) {
+      LoggerService.error('Failed to fetch /auth/me', error: e);
+      return null;
+    }
+  }
+
+  static Future<User?> getUserProfile() async {
+    try {
+      final response = await ApiClient.instance.get(ApiConfig.usersMe);
+      if (response['data'] != null && response['data'] is Map<String, dynamic>) {
+        return User.fromJson(response['data'] as Map<String, dynamic>);
+      }
+      return null;
+    } catch (e) {
+      LoggerService.error('Failed to fetch /users/me', error: e);
+      return null;
+    }
+  }
+
+  static Future<User?> updateUserProfile({required String name}) async {
+    try {
+      final response = await ApiClient.instance.patch(
+        ApiConfig.usersProfile,
+        data: {'name': name.trim()},
+      );
+      if (response['data'] != null && response['data'] is Map<String, dynamic>) {
+        return User.fromJson(response['data'] as Map<String, dynamic>);
+      }
+      return null;
+    } catch (e) {
+      LoggerService.error('Failed to update /users/profile', error: e);
+      rethrow;
+    }
+  }
+
   static Future<void> logout() async {
     try {
       await SecureStorageService.clearAuthData();

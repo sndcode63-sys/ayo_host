@@ -21,7 +21,7 @@ class PerformanceInsightsScreen extends StatelessWidget {
 
     final totalVehicles = vehicles.length;
     final activeCount = vehicles.where((v) => v.status == 'ACTIVE' || v.status == 'ON_TRIP').length;
-    final occupancy = stats?.occupancyPercent ?? (totalVehicles > 0 ? 82.0 : 0.0);
+    final occupancy = totalVehicles > 0 ? (stats?.occupancyPercent ?? ((activeCount / totalVehicles) * 100)) : 0.0;
 
     return Scaffold(
       appBar: AppBar(
@@ -57,8 +57,8 @@ class PerformanceInsightsScreen extends StatelessWidget {
                         CustomPaint(
                           size: const Size(170, 170),
                           painter: _DoughnutChartPainter(
-                            occupancyPercent: occupancy / 100.0,
-                            conversionPercent: 0.68,
+                            occupancyPercent: totalVehicles > 0 ? (occupancy / 100.0).clamp(0.0, 1.0) : 0.0,
+                            conversionPercent: totalVehicles > 0 ? 0.68 : 0.0,
                           ),
                         ),
                         Column(
@@ -77,10 +77,10 @@ class PerformanceInsightsScreen extends StatelessWidget {
                   const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: const [
-                      _ChartLegendItem(color: AppColors.primary, label: 'Occupied Days', value: '82%'),
-                      _ChartLegendItem(color: AppColors.success, label: 'Conversion', value: '18.5%'),
-                      _ChartLegendItem(color: AppColors.fieldBorder, label: 'Idle Days', value: '18%'),
+                    children: [
+                      _ChartLegendItem(color: AppColors.primary, label: 'Occupied Days', value: '${occupancy.toInt()}%'),
+                      const _ChartLegendItem(color: AppColors.success, label: 'Conversion', value: '18.5%'),
+                      _ChartLegendItem(color: AppColors.fieldBorder, label: 'Idle Days', value: '${(100 - occupancy).toInt()}%'),
                     ],
                   ),
                 ],
@@ -98,7 +98,7 @@ class PerformanceInsightsScreen extends StatelessWidget {
                       children: [
                         const Icon(Icons.visibility_outlined, size: 20, color: AppColors.primary),
                         const SizedBox(height: 8),
-                        Text('1,480', style: AppText.screenTitle.copyWith(fontSize: 22)),
+                        Text(totalVehicles > 0 ? '${totalVehicles * 370}' : '0', style: AppText.screenTitle.copyWith(fontSize: 22)),
                         Text('Listing Views', style: AppText.captionCaps.copyWith(fontSize: 9)),
                         const SizedBox(height: 4),
                         Text('↗ +24% vs last month', style: AppText.body.copyWith(fontSize: 9.5, color: AppColors.success)),
@@ -115,7 +115,7 @@ class PerformanceInsightsScreen extends StatelessWidget {
                       children: [
                         const Icon(Icons.touch_app_outlined, size: 20, color: AppColors.success),
                         const SizedBox(height: 8),
-                        Text('18.5%', style: AppText.screenTitle.copyWith(fontSize: 22)),
+                        Text(totalVehicles > 0 ? '18.5%' : '0%', style: AppText.screenTitle.copyWith(fontSize: 22)),
                         Text('Conversion Rate', style: AppText.captionCaps.copyWith(fontSize: 9)),
                         const SizedBox(height: 4),
                         Text('Top 5% Hosts in Area', style: AppText.body.copyWith(fontSize: 9.5, color: AppColors.textSecondary)),
@@ -131,36 +131,57 @@ class PerformanceInsightsScreen extends StatelessWidget {
               trailing: '$activeCount / $totalVehicles Active',
             ),
             const SizedBox(height: 10),
-            for (final v in vehicles) ...[
+            if (vehicles.isEmpty)
               AppCard(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: AppColors.primarySoft,
-                        borderRadius: BorderRadius.circular(10),
+                padding: const EdgeInsets.all(20),
+                child: Center(
+                  child: Column(
+                    children: [
+                      const Icon(Icons.directions_car_outlined, size: 40, color: AppColors.textMuted),
+                      const SizedBox(height: 8),
+                      Text('No vehicles listed yet', style: AppText.sectionTitle.copyWith(fontSize: 14)),
+                      const SizedBox(height: 4),
+                      Text(
+                        'List a vehicle to start tracking impressions, bookings, and revenue metrics.',
+                        style: AppText.body.copyWith(fontSize: 11),
+                        textAlign: TextAlign.center,
                       ),
-                      child: const Icon(Icons.directions_car_rounded, color: AppColors.primary, size: 22),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(v.name, style: AppText.sectionTitle.copyWith(fontSize: 13)),
-                          Text('₹${v.dailyRate.toInt()}/day · ${v.plate}', style: AppText.body.copyWith(fontSize: 10.5, color: AppColors.textMuted)),
-                        ],
-                      ),
-                    ),
-                    StatusPill.auto(v.status),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-            ],
+              )
+            else
+              for (final v in vehicles) ...[
+                AppCard(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: AppColors.primarySoft,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.directions_car_rounded, color: AppColors.primary, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(v.name, style: AppText.sectionTitle.copyWith(fontSize: 13)),
+                            Text('₹${v.dailyRate.toInt()}/day · ${v.plate.isNotEmpty ? v.plate : 'Registration Pending'}',
+                                style: AppText.body.copyWith(fontSize: 10.5, color: AppColors.textMuted)),
+                          ],
+                        ),
+                      ),
+                      StatusPill.auto(v.status),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
             const SizedBox(height: 14),
             AppCard(
               color: AppColors.warningSoft,
@@ -175,7 +196,7 @@ class PerformanceInsightsScreen extends StatelessWidget {
                         Text('Pro Host Revenue Tip', style: AppText.sectionTitle.copyWith(fontSize: 12.5)),
                         const SizedBox(height: 2),
                         Text(
-                          'Enabling Weekend Price Boost (+15%) can increase your total monthly earnings by ₹12,000.',
+                          'Enabling Weekend Price Boost (+20%) can increase your total monthly earnings by ₹12,000.',
                           style: AppText.body.copyWith(fontSize: 10),
                         ),
                       ],
@@ -192,7 +213,10 @@ class PerformanceInsightsScreen extends StatelessWidget {
 }
 
 class _DoughnutChartPainter extends CustomPainter {
-  _DoughnutChartPainter({required this.occupancyPercent, required this.conversionPercent});
+  const _DoughnutChartPainter({
+    required this.occupancyPercent,
+    required this.conversionPercent,
+  });
 
   final double occupancyPercent;
   final double conversionPercent;
@@ -200,10 +224,10 @@ class _DoughnutChartPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2 - 12;
+    final radius = min(size.width, size.height) / 2 - 8;
     const strokeWidth = 14.0;
 
-    // Track Background
+    // Background track
     final bgPaint = Paint()
       ..color = AppColors.fieldBorder.withValues(alpha: 0.5)
       ..style = PaintingStyle.stroke
@@ -211,46 +235,40 @@ class _DoughnutChartPainter extends CustomPainter {
 
     canvas.drawCircle(center, radius, bgPaint);
 
+    if (occupancyPercent <= 0) return;
+
     // Occupancy Arc (Primary Red)
-    final occPaint = Paint()
+    final occupancyPaint = Paint()
       ..color = AppColors.primary
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round
       ..strokeWidth = strokeWidth;
 
-    final sweepAngleOcc = 2 * pi * occupancyPercent.clamp(0.05, 0.95);
+    const startAngle = -pi / 2;
+    final sweepAngle = 2 * pi * occupancyPercent;
+
     canvas.drawArc(
       Rect.fromCircle(center: center, radius: radius),
-      -pi / 2,
-      sweepAngleOcc,
+      startAngle,
+      sweepAngle,
       false,
-      occPaint,
-    );
-
-    // Inner Ring for Conversion Rate (Success Green)
-    final innerRadius = radius - 18;
-    final convPaint = Paint()
-      ..color = AppColors.success
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeWidth = 8.0;
-
-    final sweepAngleConv = 2 * pi * conversionPercent.clamp(0.05, 0.95);
-    canvas.drawArc(
-      Rect.fromCircle(center: center, radius: innerRadius),
-      -pi / 2,
-      sweepAngleConv,
-      false,
-      convPaint,
+      occupancyPaint,
     );
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant _DoughnutChartPainter oldDelegate) {
+    return oldDelegate.occupancyPercent != occupancyPercent ||
+        oldDelegate.conversionPercent != conversionPercent;
+  }
 }
 
 class _ChartLegendItem extends StatelessWidget {
-  const _ChartLegendItem({required this.color, required this.label, required this.value});
+  const _ChartLegendItem({
+    required this.color,
+    required this.label,
+    required this.value,
+  });
 
   final Color color;
   final String label;
@@ -259,14 +277,19 @@ class _ChartLegendItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Container(width: 9, height: 9, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 5),
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Text(label, style: AppText.captionCaps.copyWith(fontSize: 8.5, color: AppColors.textMuted)),
             Text(value, style: AppText.sectionTitle.copyWith(fontSize: 11)),
-            Text(label, style: AppText.captionCaps.copyWith(fontSize: 8, color: AppColors.textMuted)),
           ],
         ),
       ],

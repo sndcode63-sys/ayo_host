@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
+import '../../widgets/app_image_view.dart';
 import '../onboarding/host_profile_setup_screen.dart';
 
 /// AYO Account Details — personal info, contact, payout, privacy.
@@ -80,20 +81,27 @@ class AccountDetailsScreen extends StatelessWidget {
                     child: Builder(
                       builder: (context) {
                         final avatarUrl = profile?.avatarUrl;
-                        final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
                         return Stack(
                           children: [
-                            CircleAvatar(
-                              radius: 34,
-                              backgroundColor: AppColors.primarySoft,
-                              backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
-                              child: hasAvatar
-                                  ? null
-                                  : Text(
+                            ClipOval(
+                              child: Container(
+                                width: 68,
+                                height: 68,
+                                color: AppColors.primarySoft,
+                                child: AppImageView(
+                                  url: avatarUrl,
+                                  width: 68,
+                                  height: 68,
+                                  fit: BoxFit.cover,
+                                  isAvatar: true,
+                                  fallbackIcon: Center(
+                                    child: Text(
                                       profile?.initials.isNotEmpty == true ? profile!.initials : 'H',
-                                      style: AppText.screenTitle
-                                          .copyWith(color: AppColors.primary),
+                                      style: AppText.screenTitle.copyWith(color: AppColors.primary),
                                     ),
+                                  ),
+                                ),
+                              ),
                             ),
                             const Positioned(
                               right: 0,
@@ -156,7 +164,7 @@ class AccountDetailsScreen extends StatelessWidget {
             PrimaryButton(
               label: 'Edit Profile Details',
               icon: Icons.edit_outlined,
-              onPressed: () {},
+              onPressed: () => Navigator.pushNamed(context, HostProfileSetupScreen.route),
             ),
           ],
         ),

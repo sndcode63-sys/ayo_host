@@ -2,7 +2,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:razorpay_flutter/razorpay_flutter.dart';
 
+import '../../../core/config/api_config.dart';
+import '../../../core/services/razorpay_service.dart';
 import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
@@ -12,6 +15,7 @@ import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
 import '../../widgets/chrome.dart';
+import '../../widgets/app_image_view.dart';
 import '../dashboard/main_shell.dart';
 
 /// AYO Vehicle Documents — RC, DL, Insurance, Smog (Step 2 of 2 Verification).
@@ -58,14 +62,24 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
 
     setState(() => _uploadingDoc = true);
     try {
-      final url = await HostService.uploadToCloudinary(File(picked.path));
+      final String url;
+      if (vId.isNotEmpty) {
+        url = await HostService.uploadVehicleDocumentGcs(
+          vehicleId: vId,
+          file: File(picked.path),
+          docType: docType,
+        );
+      } else {
+        url = await HostService.uploadImageToGcs(File(picked.path));
+      }
+      AppImageCache.register(url, picked.path);
       await ob.confirmDocument(
         vehicleId: vId,
         type: docType,
         url: url,
         fileName: picked.name,
       );
-      ToastService.showSuccess('$docType document uploaded successfully!');
+      ToastService.showSuccess('$docType document uploaded to Google Cloud Storage!');
     } catch (e) {
       ToastService.showError('Document upload failed: $e');
     } finally {
@@ -111,7 +125,7 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
                     child: Icon(Icons.link_rounded, color: AppColors.primary),
                   ),
                   title: const Text('Paste Document URL'),
-                  subtitle: const Text('Enter Cloudinary or HTTPS URL'),
+                  subtitle: const Text('Enter GCS or HTTPS URL'),
                   onTap: () {
                     Navigator.pop(ctx);
                     _showUrlInputDialog(context, docType);
@@ -137,12 +151,12 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Enter Cloudinary / Document URL for $docType:', style: const TextStyle(fontSize: 12)),
+            Text('Enter GCS / Document URL for $docType:', style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 10),
             TextField(
               controller: urlController,
               decoration: const InputDecoration(
-                hintText: 'https://res.cloudinary.com/.../doc.pdf',
+                hintText: 'https://storage.googleapis.com/ayo-rentals/.../doc.pdf',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -174,9 +188,78 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
     );
   }
 
+  @override
+  void dispose() {
+    RazorpayService.instance.dispose();
+    super.dispose();
+  }
+
   Future<void> _submit() async {
     final ob = context.read<OnboardingController>();
+    final authCtrl = context.read<AuthController>();
     final vId = widget.vehicleId ?? ob.createdVehicleId;
+
+    if (vId.isEmpty) {
+      ToastService.showError('Vehicle ID missing. Please create vehicle first.');
+      return;
+    }
+
+    final checklist = ob.documentChecklist;
+    if (checklist != null && checklist.hasMissingRequiredDocuments) {
+      ToastService.showError(
+        'Please upload all required documents: ${checklist.missingDocuments.join(", ")} before submitting.',
+      );
+      return;
+    }
+
+    final fee = checklist?.listingFee;
+    if (fee != null && !fee.bypassEnabled && fee.amountPaise > 0) {
+      try {
+        final feeOrder = await HostService.payListingFee(vId);
+        if (feeOrder.bypassed) {
+          final ok = await ob.submitVehicleForReview(vId);
+          if (ok && mounted) {
+            ToastService.showSuccess('Listing fee waived! Vehicle submitted for review.');
+            Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+          }
+          return;
+        }
+
+        // Open Razorpay Checkout Sheet
+        RazorpayService.instance.initialize(
+          onSuccess: (PaymentSuccessResponse res) async {
+            ToastService.showInfo('Verifying Razorpay payment...');
+            final ok = await ob.verifyListingFee(
+              vehicleId: vId,
+              orderId: res.orderId ?? feeOrder.orderId,
+              paymentId: res.paymentId ?? '',
+              signature: res.signature ?? '',
+            );
+            if (ok && mounted) {
+              ToastService.showSuccess('Listing fee verified! Vehicle submitted for admin review.');
+              Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+            }
+          },
+          onFailure: (PaymentFailureResponse res) {
+            ToastService.showError('Razorpay payment cancelled: ${res.message}');
+          },
+        );
+
+        RazorpayService.instance.openCheckout(
+          keyId: feeOrder.keyId.isNotEmpty ? feeOrder.keyId : ApiConfig.defaultRazorpayKey,
+          amountPaise: feeOrder.amount > 0 ? feeOrder.amount : fee.amountPaise,
+          orderId: feeOrder.orderId,
+          name: 'AYO Host Platform',
+          description: 'Vehicle Listing & Verification Fee (₹${(fee.amountPaise / 100).toInt()})',
+          contact: authCtrl.userPhone,
+          email: authCtrl.userEmail,
+        );
+        return;
+      } catch (e) {
+        ToastService.showError('Payment initiation failed: $e');
+        return;
+      }
+    }
 
     final ok = await ob.submitVehicleForReview(vId);
     if (!mounted || !ok) return;
@@ -288,8 +371,55 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
               ],
             ),
             const SizedBox(height: 16),
+            if (checklist != null && checklist.missingDocuments.isNotEmpty) ...[
+              AppCard(
+                color: AppColors.warningSoft,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline_rounded, color: AppColors.warning, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Missing Required Documents: ${checklist.missingDocuments.join(", ")}. Please upload them to submit for review.',
+                        style: AppText.body.copyWith(fontSize: 11, color: AppColors.textPrimary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (checklist?.listingFee != null) ...[
+              AppCard(
+                color: AppColors.primarySoft.withValues(alpha: 0.3),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('LISTING FEE & ACTIVATION', style: AppText.captionCaps.copyWith(color: AppColors.primary)),
+                        const SizedBox(height: 2),
+                        Text(
+                          checklist!.listingFee!.displayAmount,
+                          style: AppText.screenTitle.copyWith(fontSize: 18, color: AppColors.primary),
+                        ),
+                      ],
+                    ),
+                    StatusPill(
+                      label: checklist.listingFee!.bypassEnabled ? 'WAIVED' : 'REQUIRED',
+                      kind: checklist.listingFee!.bypassEnabled ? StatusKind.success : StatusKind.neutral,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+            ],
             PrimaryButton(
-              label: 'Submit Documents for Review',
+              label: checklist?.listingFee != null && !checklist!.listingFee!.bypassEnabled
+                  ? 'Pay Listing Fee & Submit'
+                  : 'Submit Documents for Review',
               icon: Icons.arrow_forward_rounded,
               loading: ob.saving,
               onPressed: _submit,

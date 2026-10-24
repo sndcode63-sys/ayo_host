@@ -5,12 +5,21 @@ class ApiConfig {
   static const bool useMockData = false;
   static const Duration timeout = Duration(seconds: 30);
 
-  // Cloudinary Direct Upload Settings (from Backend API Config)
-  static String cloudinaryCloudName = 'rohitrv7';
-  static String cloudinaryUploadPreset = 'ayo_vehicles';
+  // Google Cloud Storage (GCS)
+  static const String gcsBucket = 'ayo-rentals';
+  static const String gcsPublicBaseUrl = 'https://storage.googleapis.com/ayo-rentals';
+
+  // Razorpay Gateway
+  static const String defaultRazorpayKey = 'rzp_test_Tq48KTS6e99UpX';
 
   // Authentication Endpoints
   static const String authExchange = '/auth/exchange';
+  static const String authQuickLogin = '/auth/quick-login';
+  static const String authMe = '/auth/me';
+
+  // User Endpoints
+  static const String usersMe = '/users/me';
+  static const String usersProfile = '/users/profile';
 
   // Host Profile Endpoints
   static const String hostProfile = '/host/profile';
@@ -34,9 +43,17 @@ class ApiConfig {
   static String vehicleDocumentsStatus(String id) => '/vehicles/$id/documents-status';
   static String vehicleDocumentsConfirm(String id) => '/vehicles/$id/documents/confirm';
   static String vehiclePhotosConfirm(String id) => '/vehicles/$id/photos/confirm';
+  static String vehiclePhotosPresign(String id) => '/vehicles/$id/photos/presign';
+  static String vehicleDocumentsPresign(String id) => '/vehicles/$id/documents/presign';
   static String vehicleSubmit(String id) => '/vehicles/$id/submit';
+  static String vehiclePayListingFee(String id) => '/vehicles/$id/pay-listing-fee';
+  static String vehiclePayListingFeeVerify(String id) => '/vehicles/$id/pay-listing-fee/verify';
   static const String documents = '/host/vehicles/documents';
   static const String payout = '/host/payout';
+
+  // Payments Endpoints
+  static const String paymentsConfig = '/payments/config';
+  static const String paymentsVerify = '/payments/verify';
 
   // Trips & Handover
   static String tripHandover(String tripId) => '/trips/$tripId/start-handover';

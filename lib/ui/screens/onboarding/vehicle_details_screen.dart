@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../state/controllers.dart';
@@ -335,7 +336,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
             const SizedBox(height: 12),
             AppCard(
               padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               child: Row(
                 children: [
                   Expanded(
@@ -344,9 +345,18 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                       children: [
                         Text('Allow Hourly Rentals',
                             style: AppText.sectionTitle
-                                .copyWith(fontSize: 12.5)),
-                        Text('Hourly rentals enabled for guest trips',
-                            style: AppText.body.copyWith(fontSize: 10)),
+                                .copyWith(fontSize: 13)),
+                        const SizedBox(height: 2),
+                        Text(
+                          ob.hourlyRentals
+                              ? '₹${ob.effectiveHourlyRate.toInt()}/hr · 3 hr minimum'
+                              : 'Enable hourly bookings alongside daily rentals',
+                          style: AppText.body.copyWith(
+                            fontSize: 11,
+                            color: ob.hourlyRentals ? AppColors.primary : AppColors.textMuted,
+                            fontWeight: ob.hourlyRentals ? FontWeight.w600 : FontWeight.normal,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -359,8 +369,56 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
-            if (ob.dailyRate > 0)
+            if (ob.hourlyRentals) ...[
+              const SizedBox(height: 12),
+              AppCard(
+                color: AppColors.primarySoft,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('HOURLY RENTAL PRICING',
+                                style: AppText.captionCaps.copyWith(color: AppColors.primary)),
+                            const SizedBox(height: 3),
+                            Text(
+                              '₹${ob.effectiveHourlyRate.toInt()} / hr',
+                              style: AppText.screenTitle.copyWith(fontSize: 20, color: AppColors.primary),
+                            ),
+                          ],
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          decoration: BoxDecoration(
+                            color: AppColors.card,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: AppColors.primaryBorder),
+                          ),
+                          child: Text(
+                            '3 hr minimum trip',
+                            style: AppText.captionCaps.copyWith(
+                              color: AppColors.primary,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 9,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Minimum trip earnings: ₹${(ob.effectiveHourlyRate * 3).toInt()} (calculated in Indian Rupees ₹)',
+                      style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ] else if (ob.dailyRate > 0) ...[
+              const SizedBox(height: 12),
               AppCard(
                 color: AppColors.primarySoft,
                 child: Row(
@@ -393,30 +451,41 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                   ],
                 ),
               ),
+            ],
             const SizedBox(height: 18),
             PrimaryButton(
               label: 'Next: Vehicle Photos & Documents',
               icon: Icons.arrow_forward_rounded,
               loading: ob.saving,
               onPressed: () {
-                if (ob.make.trim().isEmpty || ob.model.trim().isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter Make and Model of your vehicle')),
-                  );
+                ob.make = _makeController.text.trim();
+                ob.model = _modelController.text.trim();
+                ob.year = _yearController.text.trim();
+                ob.plate = _plateController.text.trim().toUpperCase();
+                ob.pickupAddress = _addressController.text.trim();
+                ob.pincode = _pincodeController.text.trim();
+                ob.dailyRate = double.tryParse(_rateController.text.trim()) ?? 0;
+
+                if (ob.make.isEmpty || ob.model.isEmpty) {
+                  ToastService.showWarning('Please enter Make and Model of your vehicle');
                   return;
                 }
                 final currentYear = DateTime.now().year;
-                final parsedYear = int.tryParse(ob.year.trim());
+                final parsedYear = int.tryParse(ob.year);
                 if (parsedYear == null || parsedYear < 1990 || parsedYear > currentYear + 1) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Please enter a valid 4-digit manufacturing year (1990 - ${currentYear + 1})')),
-                  );
+                  ToastService.showWarning('Please enter a valid 4-digit manufacturing year (1990 - ${currentYear + 1})');
+                  return;
+                }
+                if (ob.plate.isEmpty) {
+                  ToastService.showWarning('Please enter vehicle Registration Plate number (e.g. 05 KL 8821)');
+                  return;
+                }
+                if (ob.pickupAddress.isEmpty) {
+                  ToastService.showWarning('Please enter vehicle pickup address or fetch via Pincode');
                   return;
                 }
                 if (ob.dailyRate <= 0) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Please enter a daily rate in ₹')),
-                  );
+                  ToastService.showWarning('Please enter a valid daily rental rate in ₹');
                   return;
                 }
                 Navigator.pushNamed(context, VehiclePhotosScreen.route);

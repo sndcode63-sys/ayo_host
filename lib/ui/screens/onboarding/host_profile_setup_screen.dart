@@ -11,6 +11,7 @@ import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/chrome.dart';
 import '../../widgets/inputs.dart';
+import '../../widgets/app_image_view.dart';
 import '../dashboard/main_shell.dart';
 import 'payout_setup_screen.dart';
 
@@ -32,7 +33,9 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
   late final TextEditingController _city;
   late final TextEditingController _phone;
   late final TextEditingController _bio;
+  late final TextEditingController _dlNumber;
   String _avatarUrl = '';
+  String? _avatarLocalPath;
   bool _uploadingAvatar = false;
 
   @override
@@ -48,6 +51,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
     _city = TextEditingController(text: profile?.city ?? '');
     _phone = TextEditingController(text: profile?.phone ?? user?.phone ?? '');
     _bio = TextEditingController(text: profile?.bio ?? '');
+    _dlNumber = TextEditingController(text: profile?.drivingLicenceNumber ?? '');
     _avatarUrl = profile?.avatarUrl ?? '';
   }
 
@@ -61,6 +65,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
       _city,
       _phone,
       _bio,
+      _dlNumber,
     ]) {
       c.dispose();
     }
@@ -75,11 +80,19 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
     );
     if (picked == null) return;
 
-    setState(() => _uploadingAvatar = true);
+    // Immediately show the selected photo locally on the UI with 0ms delay
+    setState(() {
+      _avatarLocalPath = picked.path;
+      _uploadingAvatar = true;
+    });
+
     try {
-      final url = await HostService.uploadToCloudinary(File(picked.path));
-      setState(() => _avatarUrl = url);
-      ToastService.showSuccess('Profile photo uploaded successfully!');
+      final url = await HostService.uploadAvatarToGcs(File(picked.path));
+      AppImageCache.register(url, picked.path);
+      if (mounted) {
+        setState(() => _avatarUrl = url);
+      }
+      ToastService.showSuccess('Profile photo uploaded to Google Cloud Storage!');
     } catch (e) {
       ToastService.showError('Photo upload failed: $e');
     } finally {
@@ -104,22 +117,57 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
   }
 
   Future<void> _continue() async {
-    if (_firstName.text.trim().isEmpty || _lastName.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter your first and last name')),
-      );
+    final first = _firstName.text.trim();
+    final last = _lastName.text.trim();
+    final dobText = _dob.text.trim();
+    final cityText = _city.text.trim();
+
+    if (first.length < 2) {
+      ToastService.showWarning('Please enter a valid first name (at least 2 letters)');
+      return;
+    }
+    if (last.isEmpty) {
+      ToastService.showWarning('Please enter your last name');
+      return;
+    }
+    if (dobText.isEmpty) {
+      ToastService.showWarning('Please select your Date of Birth');
+      return;
+    }
+
+    try {
+      final parsedDob = DateTime.parse(dobText);
+      final ageYears = DateTime.now().difference(parsedDob).inDays ~/ 365;
+      if (ageYears < 18) {
+        ToastService.showWarning('Host must be at least 18 years old to list vehicles');
+        return;
+      }
+    } catch (_) {}
+
+    if (cityText.isEmpty) {
+      ToastService.showWarning('Please enter your city (e.g. Bengaluru, Mumbai)');
+      return;
+    }
+
+    final dlText = _dlNumber.text.trim();
+    if (dlText.isEmpty || dlText.length < 5) {
+      ToastService.showWarning('Please enter a valid Driving License (DL) number');
       return;
     }
 
     final ok = await context.read<ProfileController>().save({
-      'first_name': _firstName.text.trim(),
-      'last_name': _lastName.text.trim(),
-      'dob': _dob.text.trim(),
-      'city': _city.text.trim(),
-      'bio': _bio.text.trim(),
+      'first_name': first,
+      'last_name': last,
+      'dob': dobText,
+      'city': cityText,
+      'bio': _bio.text.trim().isNotEmpty ? _bio.text.trim() : 'Experienced car host on Ayo platform',
       'avatar_url': _avatarUrl,
+      'driving_licence_number': dlText,
+      'driving_licence': dlText,
+      'dl_number': dlText,
     });
     if (mounted && ok) {
+      ToastService.showSuccess('Host profile saved! Moving to Payout Setup.');
       Navigator.pushReplacementNamed(context, PayoutSetupScreen.route);
     }
   }
@@ -181,19 +229,16 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
                                     ),
                                   ),
                                 )
-                              : _avatarUrl.isNotEmpty
+                              : (_avatarUrl.isNotEmpty || (_avatarLocalPath != null && _avatarLocalPath!.isNotEmpty))
                                   ? ClipRRect(
                                       borderRadius: BorderRadius.circular(40),
-                                      child: Image.network(
-                                        _avatarUrl,
+                                      child: AppImageView(
+                                        url: _avatarUrl,
+                                        localPath: _avatarLocalPath,
                                         width: 80,
                                         height: 80,
                                         fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) => const Icon(
-                                          Icons.person_outline_rounded,
-                                          size: 34,
-                                          color: AppColors.textMuted,
-                                        ),
+                                        isAvatar: true,
                                       ),
                                     )
                                   : const Icon(
@@ -287,6 +332,14 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
               controller: _city,
               prefix: const Icon(Icons.location_on_outlined,
                   size: 17, color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 14),
+            AppTextField(
+              label: 'Host Driving License (DL) Number',
+              hint: 'e.g. DL1420110012345',
+              controller: _dlNumber,
+              prefix: const Icon(Icons.badge_outlined,
+                  size: 17, color: AppColors.primary),
             ),
             const SizedBox(height: 14),
             AppTextField(

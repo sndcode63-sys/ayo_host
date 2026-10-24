@@ -167,10 +167,15 @@ class _LoggingInterceptor extends Interceptor {
 
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
-    LoggerService.error(
-      'API Error: ${err.requestOptions.method} ${err.requestOptions.uri} - Response: ${err.response?.data}',
-      error: err,
-    );
+    final errCode = err.response?.data?['error']?['code']?.toString() ?? '';
+    if (err.response?.statusCode == 402 || errCode == 'LISTING_FEE_REQUIRED') {
+      LoggerService.info('API Gate Notice (402): Listing fee required for ${err.requestOptions.uri}');
+    } else {
+      LoggerService.error(
+        'API Error: ${err.requestOptions.method} ${err.requestOptions.uri} - Response: ${err.response?.data}',
+        error: err,
+      );
+    }
     super.onError(err, handler);
   }
 }

@@ -21,18 +21,30 @@ class AuthRepository {
     );
   }
 
+  Future<AuthResponse> quickLoginHost() async {
+    return await AuthService.quickLogin(role: 'HOST');
+  }
+
+  Future<User?> getAuthMe() async {
+    return await AuthService.getAuthMe();
+  }
+
   Future<AuthResponse> devMockExchange({
     required String phone,
     String role = 'HOST',
   }) async {
-    final mockUid = 'host_${phone.replaceAll(RegExp(r'[^0-9]'), '')}';
-    final mockIdToken = 'mock:$mockUid:$phone';
-    return await exchangeFirebaseToken(
-      idToken: mockIdToken,
-      role: role,
-      consentAccepted: true,
-      consentVersion: '1.0',
-    );
+    try {
+      final mockUid = 'host_${phone.replaceAll(RegExp(r'[^0-9]'), '')}';
+      final mockIdToken = 'mock:$mockUid:$phone';
+      return await exchangeFirebaseToken(
+        idToken: mockIdToken,
+        role: role,
+        consentAccepted: true,
+        consentVersion: '1.0',
+      );
+    } catch (_) {
+      return await quickLoginHost();
+    }
   }
 
   Future<OnboardingStatus> getOnboardingStatus() async {
@@ -58,19 +70,22 @@ class HostRepository {
       final res = await _api.get('/host/dashboard');
       return DashboardStats.fromJson(res['data'] ?? res);
     } catch (_) {
-      // Aggregate dynamically from real host vehicles and profile
+      // Aggregate dynamically from real host vehicles, trips, and profile
       final vehicles = await fetchVehicles();
       final profile = await fetchProfile();
+      final activeCount = vehicles.where((v) => v.status == 'ACTIVE' || v.status == 'ON_TRIP').length;
+      final totalDailyRent = vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate);
+
       return DashboardStats(
         greeting: 'Welcome,',
         hostName: profile.firstName.isNotEmpty ? profile.firstName : 'Host Partner',
-        totalRevenue: vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate),
+        totalRevenue: totalDailyRent,
         revenueChangePercent: 0,
         pendingPayout: 0,
         payoutDate: 'Auto Transfer',
-        activeRides: vehicles.where((v) => v.status == 'ACTIVE' || v.status == 'ON_TRIP').length,
+        activeRides: activeCount,
         totalVehicles: vehicles.length,
-        occupancyPercent: vehicles.isEmpty ? 0 : 80,
+        occupancyPercent: vehicles.isEmpty ? 0 : ((activeCount / vehicles.length) * 100),
       );
     }
   }
@@ -91,6 +106,7 @@ class HostRepository {
       city: payload['city'] ?? '',
       bio: payload['bio'] ?? '',
       avatarUrl: payload['avatar_url'] ?? payload['avatarUrl'] ?? '',
+      drivingLicenceNumber: payload['driving_licence_number'] ?? payload['driving_licence'] ?? payload['dl_number'],
     );
   }
 
@@ -102,8 +118,9 @@ class HostRepository {
 
   Future<UpiVerificationResponse> verifyUpiId({
     required String upiId,
+    String? expectedName,
   }) async {
-    return await HostService.verifyUpiId(upiId: upiId);
+    return await HostService.verifyUpiId(upiId: upiId, expectedName: expectedName);
   }
 
   Future<KycResponse> savePayoutMethod({
@@ -166,8 +183,8 @@ class OnboardingRepository {
     );
   }
 
-  Future<void> submitVehicleForReview(String vehicleId) async {
-    await HostService.submitVehicleForReview(vehicleId);
+  Future<SubmitVehicleResult> submitVehicleForReview(String vehicleId) async {
+    return await HostService.submitVehicleForReview(vehicleId);
   }
 
   Future<void> submitDocuments([String? vehicleId]) async {
@@ -176,8 +193,26 @@ class OnboardingRepository {
     }
   }
 
-  Future<bool> verifyPayoutUpi(String upiId) async {
-    final res = await HostService.verifyUpiId(upiId: upiId);
+  Future<ListingFeeOrderResponse> payListingFee(String vehicleId) async {
+    return await HostService.payListingFee(vehicleId);
+  }
+
+  Future<Map<String, dynamic>> verifyListingFeePayment(
+    String vehicleId, {
+    required String orderId,
+    required String paymentId,
+    required String signature,
+  }) async {
+    return await HostService.verifyListingFeePayment(
+      vehicleId,
+      orderId: orderId,
+      paymentId: paymentId,
+      signature: signature,
+    );
+  }
+
+  Future<bool> verifyPayoutUpi(String upiId, [String? expectedName]) async {
+    final res = await HostService.verifyUpiId(upiId: upiId, expectedName: expectedName);
     return res.valid;
   }
 

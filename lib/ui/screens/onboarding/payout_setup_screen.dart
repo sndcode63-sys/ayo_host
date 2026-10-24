@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../data/services/host_service.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
 import '../../widgets/chrome.dart';
 import '../dashboard/main_shell.dart';
 import 'vehicle_details_screen.dart';
-import '../../../data/services/host_service.dart';
-import '../../../core/services/toast_service.dart';
 
 /// AYO Host Payout & Bank Verification — Host Onboarding (Step 2 of 2).
 class PayoutSetupScreen extends StatefulWidget {
@@ -25,6 +25,7 @@ class PayoutSetupScreen extends StatefulWidget {
 class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
   final _upiController = TextEditingController();
   final _accountNumberController = TextEditingController();
+  final _confirmAccountNumberController = TextEditingController();
   final _ifscController = TextEditingController();
   final _accountHolderController = TextEditingController();
   bool _upiTab = true;
@@ -34,6 +35,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
   void dispose() {
     _upiController.dispose();
     _accountNumberController.dispose();
+    _confirmAccountNumberController.dispose();
     _ifscController.dispose();
     _accountHolderController.dispose();
     super.dispose();
@@ -41,51 +43,129 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
 
   Future<void> _verify() async {
     final ctrl = context.read<OnboardingController>();
+    final profile = context.read<ProfileController>().profile;
     final upi = _upiController.text.trim();
-    if (upi.isEmpty) {
-      ToastService.showWarning('Please enter a UPI ID (e.g. name@upi)');
+    if (upi.isEmpty || !upi.contains('@')) {
+      ToastService.showWarning('Please enter a valid UPI VPA (e.g. name@okaxis, user@upi)');
       return;
     }
-    await ctrl.verifyUpi(upi);
+    await ctrl.verifyUpi(upi, profile?.fullName);
+  }
+
+  void _showVerificationPendingDialog(String message) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.hourglass_top_rounded, color: AppColors.warning, size: 24),
+            SizedBox(width: 8),
+            Text('Verification in Progress', style: TextStyle(fontSize: 16)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message.isNotEmpty
+                  ? message
+                  : 'Your host KYC verification is in progress. Our team will verify your details within 24 hours.',
+              style: AppText.body.copyWith(fontSize: 12),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.primarySoft,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: const [
+                  Icon(Icons.timer_outlined, size: 16, color: AppColors.primary),
+                  SizedBox(width: 6),
+                  Text('Estimated Time: 24 Hours SLA', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pushReplacementNamed(context, VehicleDetailsScreen.route);
+            },
+            child: const Text('Proceed to List Vehicle', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _finishPayoutSetup() async {
+    final profile = context.read<ProfileController>().profile;
+    final dlNumber = profile?.drivingLicenceNumber;
+
     setState(() => _isSavingPayout = true);
     try {
       if (_upiTab) {
         final upi = _upiController.text.trim();
-        if (upi.isEmpty) {
-          ToastService.showWarning('Please enter your UPI ID');
+        if (upi.isEmpty || !upi.contains('@')) {
+          ToastService.showWarning('Please enter a valid UPI ID (e.g. yourname@okaxis)');
           setState(() => _isSavingPayout = false);
           return;
         }
-        await HostService.savePayoutMethod(
+
+        final res = await HostService.savePayoutMethod(
           payoutMethod: 'UPI',
           upiId: upi,
+          drivingLicenceNumber: dlNumber,
         );
+
+        if (mounted) {
+          _showVerificationPendingDialog(res.message);
+        }
       } else {
         final acc = _accountNumberController.text.trim();
-        final ifsc = _ifscController.text.trim();
+        final confirmAcc = _confirmAccountNumberController.text.trim();
+        final ifsc = _ifscController.text.trim().toUpperCase();
         final name = _accountHolderController.text.trim();
-        if (acc.isEmpty || ifsc.isEmpty || name.isEmpty) {
-          ToastService.showWarning('Please enter all bank account details');
+
+        if (acc.isEmpty || acc.length < 9 || acc.length > 18) {
+          ToastService.showWarning('Please enter a valid 9 to 18 digit bank account number');
           setState(() => _isSavingPayout = false);
           return;
         }
-        await HostService.savePayoutMethod(
+        if (acc != confirmAcc) {
+          ToastService.showWarning('Bank account numbers do not match! Please verify.');
+          setState(() => _isSavingPayout = false);
+          return;
+        }
+        if (ifsc.isEmpty || !RegExp(r'^[A-Z]{4}0[A-Z0-9]{6}$').hasMatch(ifsc)) {
+          ToastService.showWarning('Please enter a valid 11-character Indian IFSC code (e.g. HDFC0001234)');
+          setState(() => _isSavingPayout = false);
+          return;
+        }
+        final holderName = name.isNotEmpty ? name : (profile?.fullName ?? 'Host Partner');
+
+        final res = await HostService.savePayoutMethod(
           payoutMethod: 'BANK',
           accountNumber: acc,
           ifscCode: ifsc,
-          accountHolderName: name,
-        );
-      }
+          accountHolderName: holderName,
+          drivingLicenceNumber: dlNumber,
+        ) ;
 
-      ToastService.showSuccess('Payout setup complete! Proceeding to Step 3: List your vehicle.');
-      if (mounted) {
-        Navigator.pushReplacementNamed(context, VehicleDetailsScreen.route);
+        if (mounted) {
+          _showVerificationPendingDialog(res.message);
+        }
       }
     } catch (e) {
-      // Toast shown by error interceptor
+      // Toast displayed by api interceptor
     } finally {
       if (mounted) setState(() => _isSavingPayout = false);
     }
@@ -165,7 +245,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                           color: AppColors.primary,
                           fontWeight: FontWeight.w600),
                       decoration: InputDecoration(
-                        hintText: 'yourname@upi',
+                        hintText: 'yourname@okaxis',
                         filled: true,
                         fillColor: AppColors.card,
                         contentPadding: const EdgeInsets.symmetric(
@@ -214,31 +294,31 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                   ),
                 ],
               ),
-              if (profile != null && profile.fullName.isNotEmpty) ...[
+              if (ob.upiVerified) ...[
                 const SizedBox(height: 12),
                 AppCard(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  color: AppColors.primarySoft.withValues(alpha: 0.3),
                   child: Row(
                     children: [
-                      const Icon(Icons.verified_user_outlined,
-                          size: 17, color: AppColors.success),
+                      const Icon(Icons.check_circle_rounded,
+                          size: 18, color: AppColors.success),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Registered Host Name',
-                                style: AppText.captionCaps.copyWith(fontSize: 8.5)),
-                            Text(profile.fullName,
-                                style: AppText.input
-                                    .copyWith(fontWeight: FontWeight.w600)),
+                            Text('Verified Bank Account Name',
+                                style: AppText.captionCaps.copyWith(fontSize: 8.5, color: AppColors.success)),
+                            Text(
+                              ob.upiRegisteredName ?? profile?.fullName ?? 'Host Partner',
+                              style: AppText.input.copyWith(fontWeight: FontWeight.w600),
+                            ),
                           ],
                         ),
                       ),
-                      if (ob.upiVerified)
-                        const StatusPill(
-                            label: 'Verified', kind: StatusKind.danger),
+                      const StatusPill(label: 'VERIFIED', kind: StatusKind.success),
                     ],
                   ),
                 ),
@@ -251,6 +331,17 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
                   hintText: 'e.g. 50100234567890',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text('CONFIRM BANK ACCOUNT NUMBER', style: AppText.fieldLabel),
+              const SizedBox(height: 6),
+              TextField(
+                controller: _confirmAccountNumberController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  hintText: 'Re-enter bank account number',
                   border: OutlineInputBorder(),
                 ),
               ),
@@ -270,9 +361,11 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
               const SizedBox(height: 6),
               TextField(
                 controller: _accountHolderController,
-                decoration: const InputDecoration(
-                  hintText: 'Full Name on Bank Record',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  hintText: profile?.fullName.isNotEmpty == true
+                      ? profile!.fullName
+                      : 'Full Name on Bank Record',
+                  border: const OutlineInputBorder(),
                 ),
               ),
             ],
@@ -289,12 +382,12 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Penny Drop Verification',
+                        Text('Penny Drop & Bank Verification (24h SLA)',
                             style: AppText.sectionTitle
                                 .copyWith(fontSize: 12.5)),
                         const SizedBox(height: 3),
                         Text(
-                          'AYO will send a test credit of ₹1.00 to verify that the account matches your official records before initiating payouts.',
+                          'AYO verifies payout information within 24 hours. Once verified, rental earnings are automatically credited to your account.',
                           style: AppText.body.copyWith(fontSize: 10),
                         ),
                       ],
@@ -305,7 +398,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
             ),
             const SizedBox(height: 20),
             PrimaryButton(
-              label: 'Verify & Finish Setup',
+              label: 'Submit & Proceed to Vehicle Listing',
               icon: Icons.check_circle_rounded,
               loading: _isSavingPayout,
               onPressed: _finishPayoutSetup,
@@ -314,10 +407,10 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
             Center(
               child: TextButton(
                 onPressed: () {
-                  ToastService.showInfo('You can configure payout anytime in Settings');
-                  Navigator.pushReplacementNamed(context, MainShell.route);
+                  ToastService.showInfo('Proceeding to vehicle listing. You can update payout in Settings.');
+                  Navigator.pushReplacementNamed(context, VehicleDetailsScreen.route);
                 },
-                child: Text('Set up payout later in Settings',
+                child: Text('Set up payout later & continue to vehicle listing',
                     style: AppText.body.copyWith(
                         fontSize: 11,
                         decoration: TextDecoration.underline,

@@ -12,6 +12,7 @@ import '../data/models/models.dart';
 import '../data/repositories/repositories.dart';
 import '../data/services/host_service.dart';
 import '../data/services/trips_service.dart';
+import '../ui/widgets/app_image_view.dart';
 
 class AuthController extends ChangeNotifier {
   AuthController(this._repo);
@@ -26,6 +27,21 @@ class AuthController extends ChangeNotifier {
   String? verificationId;
   int? resendToken;
   bool isCodeSent = false;
+
+  String? get userPhone => user?.phone ?? host?.phone;
+  String? get userEmail => user?.email ?? host?.email;
+
+  Future<void> checkSession() async {
+    final isAuth = await _repo.isAuthenticated();
+    if (isAuth) {
+      try {
+        user = await _repo.getAuthMe();
+        onboardingStatus = await _repo.getOnboardingStatus();
+        host = onboardingStatus?.profile;
+        notifyListeners();
+      } catch (_) {}
+    }
+  }
 
   Future<bool> sendPhoneOtp(String phoneNumber) async {
     loading = true;
@@ -61,7 +77,7 @@ class AuthController extends ChangeNotifier {
           verificationId = vId;
           resendToken = rToken;
           isCodeSent = true;
-          ToastService.showSuccess('OTP sent successfully');
+          ToastService.showSuccess('OTP sent successfully to $phoneNumber');
           if (!completer.isCompleted) completer.complete(true);
         },
         codeAutoRetrievalTimeout: (String vId) {
@@ -140,6 +156,31 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  Future<bool> quickLoginHost() async {
+    loading = true;
+    error = null;
+    notifyListeners();
+
+    try {
+      final authResponse = await _repo.quickLoginHost();
+      user = authResponse.user;
+
+      try {
+        onboardingStatus = await _repo.getOnboardingStatus();
+        host = onboardingStatus?.profile;
+      } catch (_) {}
+
+      return true;
+    } catch (e) {
+      error = e.toString();
+      ToastService.showError('Login failed: $e');
+      return false;
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> devMockLogin(String phone) async {
     loading = true;
     error = null;
@@ -160,8 +201,17 @@ class AuthController extends ChangeNotifier {
 
       return true;
     } catch (e) {
-      error = e.toString();
-      return false;
+      // Fallback to quick-login host
+      try {
+        final authResponse = await _repo.quickLoginHost();
+        user = authResponse.user;
+        onboardingStatus = await _repo.getOnboardingStatus();
+        host = onboardingStatus?.profile;
+        return true;
+      } catch (e2) {
+        error = e2.toString();
+        return false;
+      }
     } finally {
       loading = false;
       notifyListeners();
@@ -193,6 +243,7 @@ class DashboardController extends ChangeNotifier {
   SupportConfig? supportConfig;
   PlatformPolicies? platformPolicies;
   OnboardingStatus? onboardingStatus;
+  PaymentsConfig? paymentsConfig;
   bool loading = false;
   String? error;
 
@@ -250,6 +301,15 @@ class DashboardController extends ChangeNotifier {
             kycStatus: 'NOT_STARTED',
           );
         }),
+        HostService.getPaymentsConfig().catchError((e) {
+          LoggerService.error('Fetch payments config error', error: e);
+          return const PaymentsConfig(
+            keyId: 'rzp_test_Tq48KTS6e99UpX',
+            currency: 'INR',
+            name: 'AYO Rentals',
+            description: 'Car Rental & Security Deposit Payment',
+          );
+        }),
       ]);
 
       vehicles = results[0] as List<Vehicle>;
@@ -258,6 +318,7 @@ class DashboardController extends ChangeNotifier {
       supportConfig = results[3] as SupportConfig;
       platformPolicies = results[4] as PlatformPolicies;
       onboardingStatus = results[5] as OnboardingStatus;
+      paymentsConfig = results[6] as PaymentsConfig;
 
       Handover? nextHandover;
       if (upcomingTrips.isNotEmpty) {
@@ -286,7 +347,7 @@ class DashboardController extends ChangeNotifier {
         payoutDate: 'Auto Transfer',
         activeRides: activeCount,
         totalVehicles: vehicles.length,
-        occupancyPercent: vehicles.isEmpty ? 0 : 80,
+        occupancyPercent: vehicles.isEmpty ? 0 : ((activeCount / vehicles.length) * 100),
         nextHandover: nextHandover,
       );
     } catch (e) {
@@ -357,7 +418,7 @@ class OnboardingController extends ChangeNotifier {
   OnboardingController(this._repo);
   final OnboardingRepository _repo;
 
-  // Body/Class Types list (Host can select existing or add custom)
+  // Body/Class Types list
   List<String> bodyTypes = [
     'Sedan',
     'SUV',
@@ -417,16 +478,50 @@ class OnboardingController extends ChangeNotifier {
   String plateState = 'KA - Karnataka';
   String pincode = '';
   double dailyRate = 0; // in Rupees
+  double hourlyRate = 0; // in Rupees
   bool hourlyRentals = false;
   bool hostDelivery = false;
   String pickupAddress = '';
-  List<String> photoUrls = [];
 
-  // Map storing uploaded legal document URLs ('RC', 'DL', 'INSURANCE', 'POLLUTION')
+  // 3 Mandatory Vehicle Listing Photo Slots (Front/Cover, Interior, Rear)
+  String frontPhotoUrl = '';      // Front Angle (COVER) - Mandatory
+  String? frontPhotoLocalPath;
+
+  String interiorPhotoUrl = '';   // Interior / Cockpit - Mandatory
+  String? interiorPhotoLocalPath;
+
+  String rearPhotoUrl = '';       // Rear & Trunk - Mandatory
+  String? rearPhotoLocalPath;
+
+  List<String> additionalPhotoUrls = []; // Extra angles up to 8 total
+  List<String> additionalPhotoLocalPaths = [];
+
+  List<String> get photoUrls {
+    final list = <String>[];
+    if (frontPhotoUrl.isNotEmpty) list.add(frontPhotoUrl);
+    if (interiorPhotoUrl.isNotEmpty) list.add(interiorPhotoUrl);
+    if (rearPhotoUrl.isNotEmpty) list.add(rearPhotoUrl);
+    list.addAll(additionalPhotoUrls);
+    return list;
+  }
+
+  bool get hasThreeMandatoryPhotos =>
+      (frontPhotoUrl.isNotEmpty || (frontPhotoLocalPath != null && frontPhotoLocalPath!.isNotEmpty)) &&
+      (interiorPhotoUrl.isNotEmpty || (interiorPhotoLocalPath != null && interiorPhotoLocalPath!.isNotEmpty)) &&
+      (rearPhotoUrl.isNotEmpty || (rearPhotoLocalPath != null && rearPhotoLocalPath!.isNotEmpty));
+
+  int get mandatoryPhotosCount =>
+      ((frontPhotoUrl.isNotEmpty || (frontPhotoLocalPath != null && frontPhotoLocalPath!.isNotEmpty)) ? 1 : 0) +
+      ((interiorPhotoUrl.isNotEmpty || (interiorPhotoLocalPath != null && interiorPhotoLocalPath!.isNotEmpty)) ? 1 : 0) +
+      ((rearPhotoUrl.isNotEmpty || (rearPhotoLocalPath != null && rearPhotoLocalPath!.isNotEmpty)) ? 1 : 0);
+
+  // Map storing uploaded legal document URLs ('RC', 'HOST_DL', 'INSURANCE', 'POLLUTION')
   Map<String, String> uploadedDocUrls = {};
 
   DocumentStatusChecklist? documentChecklist;
-  List<VehicleDocument> get documents => documentChecklist?.documents ?? [];
+  List<VehicleDocument> get documents => (documentChecklist?.documents ?? [])
+      .where((doc) => doc.type.toUpperCase() != 'DL' && doc.type.toUpperCase() != 'HOST_DL')
+      .toList();
   bool documentsLoading = false;
 
   bool saving = false;
@@ -435,10 +530,9 @@ class OnboardingController extends ChangeNotifier {
   bool pincodeLoading = false;
   bool verifyingUpi = false;
   bool upiVerified = false;
+  String? upiRegisteredName;
   String? lastError;
-
-  static const double listingFeeRupees = 0.00;
-  static const double listingFee = listingFeeRupees;
+  SubmitVehicleResult? submitResult;
 
   void setBodyType(String v) {
     bodyType = v;
@@ -462,6 +556,74 @@ class OnboardingController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setHourlyRate(double rate) {
+    hourlyRate = rate;
+    notifyListeners();
+  }
+
+  double get effectiveHourlyRate =>
+      hourlyRate > 0 ? hourlyRate : (dailyRate > 0 ? (dailyRate / 10).roundToDouble() : 299);
+
+  double get estimatedHourlyTrip => effectiveHourlyRate * 3;
+
+  void setFrontPhoto(String url) {
+    frontPhotoUrl = url.trim();
+    notifyListeners();
+  }
+
+  void setInteriorPhoto(String url) {
+    interiorPhotoUrl = url.trim();
+    notifyListeners();
+  }
+
+  void setRearPhoto(String url) {
+    rearPhotoUrl = url.trim();
+    notifyListeners();
+  }
+
+  void removeFrontPhoto() {
+    frontPhotoUrl = '';
+    frontPhotoLocalPath = null;
+    notifyListeners();
+  }
+
+  void removeInteriorPhoto() {
+    interiorPhotoUrl = '';
+    interiorPhotoLocalPath = null;
+    notifyListeners();
+  }
+
+  void removeRearPhoto() {
+    rearPhotoUrl = '';
+    rearPhotoLocalPath = null;
+    notifyListeners();
+  }
+
+  void addAdditionalPhoto(String url, {String? localPath}) {
+    final clean = url.trim();
+    if (clean.isNotEmpty) {
+      if (additionalPhotoUrls.length < 5) {
+        additionalPhotoUrls.add(clean);
+        if (localPath != null && localPath.isNotEmpty) {
+          additionalPhotoLocalPaths.add(localPath);
+        }
+        notifyListeners();
+      } else {
+        ToastService.showWarning('Maximum 8 total vehicle photos allowed');
+      }
+    }
+  }
+
+  void removeAdditionalPhoto(int index) {
+    if (index >= 0 && index < additionalPhotoUrls.length) {
+      additionalPhotoUrls.removeAt(index);
+      if (index < additionalPhotoLocalPaths.length) {
+        additionalPhotoLocalPaths.removeAt(index);
+      }
+      notifyListeners();
+    }
+  }
+
   void setHostDelivery(bool v) {
     hostDelivery = v;
     notifyListeners();
@@ -478,10 +640,18 @@ class OnboardingController extends ChangeNotifier {
     plateState = 'KA - Karnataka';
     pincode = '';
     dailyRate = 0;
+    hourlyRate = 0;
     hourlyRentals = false;
     hostDelivery = false;
     pickupAddress = '';
-    photoUrls = [];
+    frontPhotoUrl = '';
+    frontPhotoLocalPath = null;
+    interiorPhotoUrl = '';
+    interiorPhotoLocalPath = null;
+    rearPhotoUrl = '';
+    rearPhotoLocalPath = null;
+    additionalPhotoUrls = [];
+    additionalPhotoLocalPaths = [];
     uploadedDocUrls = {};
     documentChecklist = null;
     notifyListeners();
@@ -517,7 +687,6 @@ class OnboardingController extends ChangeNotifier {
 
             pickupAddress = '$name, $district, $state - $cleanPin';
 
-            // Auto select matching Indian State
             final matchedState = allIndianStates.firstWhere(
               (s) => s.toLowerCase().contains(state.toLowerCase()),
               orElse: () => plateState,
@@ -541,12 +710,68 @@ class OnboardingController extends ChangeNotifier {
     }
   }
 
-  Future<String?> uploadPhotoToCloudinary(File file) async {
+  Future<String?> uploadVehiclePhoto(File file, {String? slot}) async {
+    // 1. Immediately set local path so the UI previews the chosen photo with 0ms latency
+    if (slot == 'FRONT') {
+      frontPhotoLocalPath = file.path;
+    } else if (slot == 'INTERIOR') {
+      interiorPhotoLocalPath = file.path;
+    } else if (slot == 'REAR') {
+      rearPhotoLocalPath = file.path;
+    } else {
+      if (frontPhotoLocalPath == null && frontPhotoUrl.isEmpty) {
+        frontPhotoLocalPath = file.path;
+      } else if (interiorPhotoLocalPath == null && interiorPhotoUrl.isEmpty) {
+        interiorPhotoLocalPath = file.path;
+      } else if (rearPhotoLocalPath == null && rearPhotoUrl.isEmpty) {
+        rearPhotoLocalPath = file.path;
+      } else {
+        additionalPhotoLocalPaths.add(file.path);
+      }
+    }
+
     uploadingPhoto = true;
     notifyListeners();
     try {
-      final url = await HostService.uploadToCloudinary(file);
-      photoUrls.add(url);
+      final String category = slot == 'FRONT'
+          ? 'COVER'
+          : slot == 'INTERIOR'
+              ? 'INTERIOR'
+              : slot == 'REAR'
+                  ? 'REAR_TRUNK'
+                  : 'OTHER';
+
+      final String url;
+      if (createdVehicleId.isNotEmpty) {
+        url = await HostService.uploadVehiclePhotoGcs(
+          vehicleId: createdVehicleId,
+          imageFile: file,
+          category: category,
+        );
+      } else {
+        url = await HostService.uploadImageToGcs(file);
+      }
+
+      // 2. Register with in-memory image cache
+      AppImageCache.register(url, file.path);
+
+      if (slot == 'FRONT') {
+        frontPhotoUrl = url;
+      } else if (slot == 'INTERIOR') {
+        interiorPhotoUrl = url;
+      } else if (slot == 'REAR') {
+        rearPhotoUrl = url;
+      } else {
+        if (frontPhotoUrl.isEmpty) {
+          frontPhotoUrl = url;
+        } else if (interiorPhotoUrl.isEmpty) {
+          interiorPhotoUrl = url;
+        } else if (rearPhotoUrl.isEmpty) {
+          rearPhotoUrl = url;
+        } else {
+          addAdditionalPhoto(url, localPath: file.path);
+        }
+      }
       notifyListeners();
       return url;
     } catch (e) {
@@ -562,18 +787,19 @@ class OnboardingController extends ChangeNotifier {
     uploadingDoc = true;
     notifyListeners();
     try {
-      final url = await HostService.uploadToCloudinary(file);
-      uploadedDocUrls[docType] = url;
-
+      final String url;
       if (createdVehicleId.isNotEmpty) {
-        await confirmDocument(
+        url = await HostService.uploadVehicleDocumentGcs(
           vehicleId: createdVehicleId,
-          type: docType,
-          url: url,
+          file: file,
+          docType: docType,
         );
+      } else {
+        url = await HostService.uploadImageToGcs(file);
       }
 
-      ToastService.showSuccess('$docType uploaded successfully!');
+      uploadedDocUrls[docType] = url;
+      ToastService.showSuccess('$docType uploaded successfully to Google Cloud Storage!');
       notifyListeners();
       return url;
     } catch (e) {
@@ -585,16 +811,76 @@ class OnboardingController extends ChangeNotifier {
     }
   }
 
-  void addPhotoUrl(String url) {
-    if (url.trim().isNotEmpty) {
-      photoUrls.add(url.trim());
+  void saveUploadedDocUrl(String docType, String url) {
+    uploadedDocUrls[docType] = url.trim();
+    notifyListeners();
+  }
+
+  void addPhotoUrl(String url, {String? slot}) {
+    final clean = url.trim();
+    if (clean.isNotEmpty) {
+      if (slot == 'FRONT') {
+        frontPhotoUrl = clean;
+      } else if (slot == 'INTERIOR') {
+        interiorPhotoUrl = clean;
+      } else if (slot == 'REAR') {
+        rearPhotoUrl = clean;
+      } else {
+        if (frontPhotoUrl.isEmpty) {
+          frontPhotoUrl = clean;
+        } else if (interiorPhotoUrl.isEmpty) {
+          interiorPhotoUrl = clean;
+        } else if (rearPhotoUrl.isEmpty) {
+          rearPhotoUrl = clean;
+        } else {
+          addAdditionalPhoto(clean);
+        }
+      }
       notifyListeners();
     }
   }
 
   void removePhotoUrl(int index) {
-    if (index >= 0 && index < photoUrls.length) {
-      photoUrls.removeAt(index);
+    final all = photoUrls;
+    if (index >= 0 && index < all.length) {
+      final target = all[index];
+      if (target == frontPhotoUrl) {
+        frontPhotoUrl = '';
+      } else if (target == interiorPhotoUrl) {
+        interiorPhotoUrl = '';
+      } else if (target == rearPhotoUrl) {
+        rearPhotoUrl = '';
+      } else {
+        additionalPhotoUrls.remove(target);
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<bool> verifyListingFee({
+    required String vehicleId,
+    required String orderId,
+    required String paymentId,
+    required String signature,
+  }) async {
+    saving = true;
+    notifyListeners();
+    try {
+      await _repo.verifyListingFeePayment(
+        vehicleId,
+        orderId: orderId,
+        paymentId: paymentId,
+        signature: signature,
+      );
+      await loadDocuments(vehicleId);
+      ToastService.showSuccess('Listing fee verified! Vehicle moved to review.');
+      return true;
+    } catch (e) {
+      lastError = e.toString();
+      ToastService.showError('Listing fee verification failed: $e');
+      return false;
+    } finally {
+      saving = false;
       notifyListeners();
     }
   }
@@ -623,9 +909,9 @@ class OnboardingController extends ChangeNotifier {
       return false;
     }
 
-    final validPhotos = photoUrls.where((u) => u.startsWith('http')).toList();
-    if (validPhotos.isEmpty) {
-      ToastService.showWarning('Please upload at least 1 photo of your vehicle');
+    if (!hasThreeMandatoryPhotos) {
+      ToastService.showWarning(
+          'Please upload all 3 mandatory photos: Front Angle (Cover), Interior / Cockpit, and Rear & Trunk.');
       return false;
     }
 
@@ -634,6 +920,7 @@ class OnboardingController extends ChangeNotifier {
     notifyListeners();
     try {
       final ratePaise = (dailyRate * 100).round();
+      final validPhotos = photoUrls.where((u) => u.startsWith('http')).toList();
 
       final payload = <String, dynamic>{
         'make': make.trim(),
@@ -641,7 +928,7 @@ class OnboardingController extends ChangeNotifier {
         'year': yearInt,
         'body_type': bodyType,
         'transmission': transmission.trim().isEmpty ? 'Automatic' : transmission.trim(),
-        'registration_number': '${plateState.split(' - ').first} ${plate.trim()}',
+        'registration_number': '${plateState.split(' - ').first} ${plate.trim().toUpperCase()}',
         'name': '${make.trim()} ${model.trim()}',
         'description': 'Host vehicle listed on AYO platform.',
         'daily_rate': ratePaise,
@@ -665,8 +952,9 @@ class OnboardingController extends ChangeNotifier {
       if (result.containsKey('id')) {
         createdVehicleId = result['id'].toString();
 
-        // Confirm all uploaded documents with backend if available
+        // Confirm vehicle documents with backend (RC, INSURANCE, POLLUTION only - DL is on Host Profile)
         for (final entry in uploadedDocUrls.entries) {
+          if (entry.key.toUpperCase() == 'DL' || entry.key.toUpperCase() == 'HOST_DL') continue;
           await confirmDocument(
             vehicleId: createdVehicleId,
             type: entry.key,
@@ -674,11 +962,20 @@ class OnboardingController extends ChangeNotifier {
           );
         }
 
-        // Submit vehicle for review
-        await submitVehicleForReview(createdVehicleId);
+        // Fetch document status checklist
+        await loadDocuments(createdVehicleId);
+
+        // Submit vehicle for admin review or prepare listing fee gate
+        submitResult = await _repo.submitVehicleForReview(createdVehicleId);
+        if (submitResult?.listingFeeRequired == true) {
+          lastError = 'LISTING_FEE_REQUIRED';
+          return true;
+        }
+
+        ToastService.showSuccess('Vehicle submitted for review! Check fleet status on Dashboard.');
+        return true;
       }
 
-      ToastService.showSuccess('Vehicle submitted for review! Check fleet status on Dashboard.');
       return true;
     } catch (e) {
       lastError = e.toString();
@@ -724,6 +1021,7 @@ class OnboardingController extends ChangeNotifier {
         fileSizeBytes: fileSizeBytes,
         expiryDate: expiryDate,
       );
+      uploadedDocUrls[type] = url;
       await loadDocuments(vehicleId);
       return true;
     } catch (e) {
@@ -744,9 +1042,19 @@ class OnboardingController extends ChangeNotifier {
     saving = true;
     notifyListeners();
     try {
-      await _repo.submitVehicleForReview(vehicleId);
+      await loadDocuments(vehicleId);
+      submitResult = await _repo.submitVehicleForReview(vehicleId);
+      await loadDocuments(vehicleId);
+
+      if (submitResult?.listingFeeRequired == true) {
+        lastError = 'LISTING_FEE_REQUIRED';
+        return true;
+      }
+
+      ToastService.showSuccess('Vehicle submitted for Admin Review!');
       return true;
-    } catch (_) {
+    } catch (e) {
+      lastError = e.toString();
       return false;
     } finally {
       saving = false;
@@ -756,7 +1064,7 @@ class OnboardingController extends ChangeNotifier {
 
   Future<bool> submitDocuments([String? vId]) => submitVehicleForReview(vId);
 
-  Future<bool> verifyUpi(String upiId) async {
+  Future<bool> verifyUpi(String upiId, [String? expectedName]) async {
     if (upiId.trim().isEmpty) {
       ToastService.showWarning('Please enter a UPI ID');
       return false;
@@ -764,9 +1072,15 @@ class OnboardingController extends ChangeNotifier {
 
     verifyingUpi = true;
     upiVerified = false;
+    upiRegisteredName = null;
     notifyListeners();
     try {
-      upiVerified = await _repo.verifyPayoutUpi(upiId.trim());
+      final res = await HostService.verifyUpiId(
+        upiId: upiId.trim(),
+        expectedName: expectedName,
+      );
+      upiVerified = res.valid;
+      upiRegisteredName = res.registeredName;
       return upiVerified;
     } catch (e) {
       upiVerified = false;

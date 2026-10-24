@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -36,7 +37,7 @@ class _SignInScreenState extends State<SignInScreen> {
     final status = auth.onboardingStatus;
 
     final hasProfile = (status?.profileCompleted == true) ||
-        (status?.profile != null) ||
+        (status?.profile != null && status!.profile!.firstName.isNotEmpty) ||
         (auth.host != null && auth.host!.firstName.isNotEmpty) ||
         (auth.user?.name != null && auth.user!.name!.isNotEmpty);
 
@@ -51,8 +52,8 @@ class _SignInScreenState extends State<SignInScreen> {
 
   Future<void> _sendOtp() async {
     final rawPhone = _phoneController.text.trim();
-    if (rawPhone.length < 10) {
-      ToastService.showWarning('Please enter a valid 10-digit mobile number');
+    if (rawPhone.length != 10 || !RegExp(r'^[6-9]\d{9}$').hasMatch(rawPhone)) {
+      ToastService.showWarning('Please enter a valid 10-digit Indian mobile number (e.g. 9876543210)');
       return;
     }
 
@@ -91,16 +92,11 @@ class _SignInScreenState extends State<SignInScreen> {
     );
   }
 
-  Future<void> _devMockContinue() async {
-    final rawPhone = _phoneController.text.trim().isEmpty
-        ? '9876543210'
-        : _phoneController.text.trim();
-    final fullPhone = '$_countryCode$rawPhone';
-
+  Future<void> _quickHostLogin() async {
     final auth = context.read<AuthController>();
-    ToastService.showInfo('Using Dev Fast Login: $fullPhone');
+    ToastService.showInfo('Logging in with Host Session...');
 
-    final success = await auth.devMockLogin(fullPhone);
+    final success = await auth.quickLoginHost();
     if (mounted && success) {
       _routeAfterAuth();
     }
@@ -240,7 +236,7 @@ class _SignInScreenState extends State<SignInScreen> {
               ),
               const SizedBox(height: 12),
               OutlinedButton(
-                onPressed: loading ? null : _devMockContinue,
+                onPressed: loading ? null : _quickHostLogin,
                 style: OutlinedButton.styleFrom(
                   minimumSize: const Size.fromHeight(44),
                   shape: RoundedRectangleBorder(
@@ -254,7 +250,7 @@ class _SignInScreenState extends State<SignInScreen> {
                     const Icon(Icons.flash_on_rounded, size: 16, color: AppColors.primary),
                     const SizedBox(width: 6),
                     Text(
-                      'Dev Fast Login / Sign Up (Mock OTP)',
+                      'Direct Host Quick Login (Bypass OTP)',
                       style: AppText.body.copyWith(
                         fontSize: 12,
                         color: AppColors.primary,
@@ -310,9 +306,30 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
   final List<TextEditingController> _controllers =
       List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  int _secondsRemaining = 30;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startCountdown();
+  }
+
+  void _startCountdown() {
+    _secondsRemaining = 30;
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_secondsRemaining > 0) {
+        if (mounted) setState(() => _secondsRemaining--);
+      } else {
+        timer.cancel();
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _timer?.cancel();
     for (final c in _controllers) {
       c.dispose();
     }
@@ -428,8 +445,22 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
                 child: Text('Change Number', style: AppText.body.copyWith(fontSize: 11, color: AppColors.textMuted)),
               ),
               TextButton(
-                onPressed: widget.onResend,
-                child: Text('Resend OTP', style: AppText.body.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary)),
+                onPressed: _secondsRemaining > 0
+                    ? null
+                    : () {
+                        widget.onResend();
+                        _startCountdown();
+                      },
+                child: Text(
+                  _secondsRemaining > 0
+                      ? 'Resend in ${_secondsRemaining}s'
+                      : 'Resend OTP',
+                  style: AppText.body.copyWith(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _secondsRemaining > 0 ? AppColors.textMuted : AppColors.primary,
+                  ),
+                ),
               ),
             ],
           ),
@@ -465,26 +496,17 @@ class _TabPill extends StatelessWidget {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
           height: 38,
-          alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: selected ? AppColors.card : Colors.transparent,
-            borderRadius: BorderRadius.circular(11),
-            boxShadow: selected
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.06),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
+            color: selected ? AppColors.primary : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
           ),
+          alignment: Alignment.center,
           child: Text(
             label,
             style: AppText.body.copyWith(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: selected ? AppColors.textPrimary : AppColors.textMuted,
+              color: selected ? Colors.white : AppColors.textMuted,
             ),
           ),
         ),
