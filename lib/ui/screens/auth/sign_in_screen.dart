@@ -128,7 +128,7 @@ class _SignInScreenState extends State<SignInScreen> {
                 ],
               ),
               const SizedBox(height: 28),
-              Text('HOST PORTAL',
+              Text('Host portal',
                   style: AppText.captionCaps.copyWith(color: AppColors.primary)),
               const SizedBox(height: 6),
               Text(
@@ -159,7 +159,7 @@ class _SignInScreenState extends State<SignInScreen> {
                 ),
               ),
               const SizedBox(height: 22),
-              Text('MOBILE NUMBER', style: AppText.fieldLabel),
+              Text('Mobile number', style: AppText.fieldLabel),
               const SizedBox(height: 6),
               Row(
                 children: [

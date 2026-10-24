@@ -11,23 +11,23 @@ class AppToast {
     ToastType type = ToastType.info,
     Duration duration = const Duration(seconds: 3),
   }) {
-    Color bg;
+    Color accent;
     IconData icon;
     switch (type) {
       case ToastType.success:
-        bg = const Color(0xFF16A34A);
+        accent = const Color(0xFF2FD071);
         icon = Icons.check_circle_rounded;
         break;
       case ToastType.error:
-        bg = const Color(0xFFDC2626);
+        accent = const Color(0xFFFF4D5A);
         icon = Icons.error_rounded;
         break;
       case ToastType.warning:
-        bg = const Color(0xFFD97706);
+        accent = const Color(0xFFFFB020);
         icon = Icons.warning_rounded;
         break;
       case ToastType.info:
-        bg = const Color(0xFF1F2937);
+        accent = const Color(0xFF9DA3FF);
         icon = Icons.info_rounded;
         break;
     }
@@ -39,25 +39,30 @@ class AppToast {
         SnackBar(
           content: Row(
             children: [
-              Icon(icon, color: Colors.white, size: 20),
-              const SizedBox(width: 10),
+              Icon(icon, color: accent, size: 22),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   message,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w600,
+                    height: 1.35,
                   ),
                 ),
               ),
             ],
           ),
-          backgroundColor: bg,
+          backgroundColor: const Color(0xFF15131A),
+          elevation: 8,
           behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: accent.withValues(alpha: 0.35)),
+          ),
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           duration: duration,
         ),
       );

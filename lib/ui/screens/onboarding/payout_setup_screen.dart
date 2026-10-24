@@ -324,7 +324,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                 ),
               ],
             ] else ...[
-              Text('BANK ACCOUNT NUMBER', style: AppText.fieldLabel),
+              Text('Bank account number', style: AppText.fieldLabel),
               const SizedBox(height: 6),
               TextField(
                 controller: _accountNumberController,
@@ -335,7 +335,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text('CONFIRM BANK ACCOUNT NUMBER', style: AppText.fieldLabel),
+              Text('Confirm bank account number', style: AppText.fieldLabel),
               const SizedBox(height: 6),
               TextField(
                 controller: _confirmAccountNumberController,
@@ -346,7 +346,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text('IFSC CODE', style: AppText.fieldLabel),
+              Text('IFSC code', style: AppText.fieldLabel),
               const SizedBox(height: 6),
               TextField(
                 controller: _ifscController,
@@ -357,7 +357,7 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text('ACCOUNT HOLDER NAME', style: AppText.fieldLabel),
+              Text('Account holder name', style: AppText.fieldLabel),
               const SizedBox(height: 6),
               TextField(
                 controller: _accountHolderController,

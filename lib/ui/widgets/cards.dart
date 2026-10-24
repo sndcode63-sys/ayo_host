@@ -3,12 +3,12 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 
-/// White rounded card with hairline border + soft shadow.
+/// White card with hairline border and a layered, low-opacity shadow.
 class AppCard extends StatelessWidget {
   const AppCard({
     super.key,
     required this.child,
-    this.padding = const EdgeInsets.all(14),
+    this.padding = const EdgeInsets.all(18),
     this.margin,
     this.color = AppColors.card,
     this.onTap,
@@ -22,25 +22,20 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(AppRadius.card);
     final card = Container(
       margin: margin,
       decoration: BoxDecoration(
         color: color,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: radius,
         border: Border.all(color: AppColors.cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: AppShadows.card,
       ),
       child: Padding(padding: padding, child: child),
     );
     if (onTap == null) return card;
     return InkWell(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: radius,
       onTap: onTap,
       child: card,
     );
@@ -74,8 +69,8 @@ class SectionHeader extends StatelessWidget {
             child: Text(
               trailing!,
               style: AppText.body.copyWith(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
                 color: trailingColor ?? AppColors.primary,
               ),
             ),
@@ -122,23 +117,35 @@ class StatusPill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (bg, fg) = switch (kind) {
-      StatusKind.danger => (AppColors.primary, Colors.white),
+      StatusKind.danger => (AppColors.primarySoft, AppColors.primary),
       StatusKind.success => (AppColors.successSoft, AppColors.success),
-      StatusKind.neutral => (AppColors.fieldFill, AppColors.textSecondary),
+      StatusKind.neutral => (AppColors.fieldMuted, AppColors.textSecondary),
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(
-        label,
-        style: AppText.body.copyWith(
-          fontSize: 9,
-          fontWeight: FontWeight.w600,
-          color: fg,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: fg, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: AppText.body.copyWith(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: fg,
+              height: 1.2,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -165,19 +172,20 @@ class SelectChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(AppRadius.chip);
     return InkWell(
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: radius,
       onTap: onTap,
-      child: Container(
-        height: 38,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        height: 42,
         width: expanded ? double.infinity : null,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: selected ? AppColors.primarySoft : AppColors.card,
-          borderRadius: BorderRadius.circular(10),
+          color: selected ? AppColors.ink : AppColors.card,
+          borderRadius: radius,
           border: Border.all(
-            color: selected ? AppColors.primary : AppColors.cardBorder,
-            width: selected ? 1.2 : 1,
+            color: selected ? AppColors.ink : AppColors.fieldBorder,
           ),
         ),
         child: Row(
@@ -186,18 +194,18 @@ class SelectChip extends StatelessWidget {
           children: [
             if (icon != null) ...[
               Icon(icon,
-                  size: 15,
-                  color: selected ? AppColors.primary : AppColors.textMuted),
-              const SizedBox(width: 5),
+                  size: 16,
+                  color: selected ? Colors.white : AppColors.textMuted),
+              const SizedBox(width: 6),
             ],
             Flexible(
               child: Text(
                 label,
                 overflow: TextOverflow.ellipsis,
                 style: AppText.body.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: selected ? AppColors.primary : AppColors.textSecondary,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? Colors.white : AppColors.textSecondary,
                 ),
               ),
             ),

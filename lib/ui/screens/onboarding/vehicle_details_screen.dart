@@ -382,7 +382,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('HOURLY RENTAL PRICING',
+                            Text('Hourly rental pricing',
                                 style: AppText.captionCaps.copyWith(color: AppColors.primary)),
                             const SizedBox(height: 3),
                             Text(

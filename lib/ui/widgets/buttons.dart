@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 
-/// Full-width red CTA used across the app, e.g. "Continue →".
+/// Full-width primary CTA: red gradient with a soft coloured glow.
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton({
     super.key,
@@ -20,39 +20,52 @@ class PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 50,
-      child: ElevatedButton(
-        onPressed: loading ? null : onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primary,
-          disabledBackgroundColor: AppColors.primary.withValues(alpha: 0.7),
-          foregroundColor: Colors.white,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+    final enabled = onPressed != null && !loading;
+    final radius = BorderRadius.circular(AppRadius.button);
+
+    return Opacity(
+      opacity: onPressed == null && !loading ? 0.55 : 1,
+      child: Container(
+        width: double.infinity,
+        height: 54,
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          gradient: const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFF0101F), AppColors.primaryDark],
+          ),
+          boxShadow: enabled ? AppShadows.cta : null,
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: radius,
+          child: InkWell(
+            borderRadius: radius,
+            onTap: enabled ? onPressed : null,
+            child: Center(
+              child: loading
+                  ? const SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        color: Colors.white,
+                      ),
+                    )
+                  : Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(label, style: AppText.button),
+                        if (icon != null) ...[
+                          const SizedBox(width: 8),
+                          Icon(icon, size: 18, color: Colors.white),
+                        ],
+                      ],
+                    ),
+            ),
           ),
         ),
-        child: loading
-            ? const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.white,
-                ),
-              )
-            : Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(label, style: AppText.button),
-                  if (icon != null) ...[
-                    const SizedBox(width: 8),
-                    Icon(icon, size: 16, color: Colors.white),
-                  ],
-                ],
-              ),
       ),
     );
   }
@@ -75,19 +88,19 @@ class SocialButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: SizedBox(
-        height: 44,
+        height: 50,
         child: OutlinedButton.icon(
           onPressed: onPressed,
-          icon: Icon(icon, size: 17, color: AppColors.textPrimary),
+          icon: Icon(icon, size: 18, color: AppColors.textPrimary),
           label: Text(
             label,
-            style: AppText.input.copyWith(fontWeight: FontWeight.w600),
+            style: AppText.input.copyWith(fontWeight: FontWeight.w700),
           ),
           style: OutlinedButton.styleFrom(
             backgroundColor: AppColors.card,
-            side: const BorderSide(color: AppColors.cardBorder),
+            side: const BorderSide(color: AppColors.fieldBorder),
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadius.field),
             ),
           ),
         ),

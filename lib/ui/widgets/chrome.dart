@@ -75,7 +75,7 @@ class StepHeader extends StatelessWidget {
           borderRadius: BorderRadius.circular(4),
           child: LinearProgressIndicator(
             value: step / totalSteps,
-            minHeight: 3,
+            minHeight: 4,
             backgroundColor: AppColors.fieldBorder,
             valueColor:
                 const AlwaysStoppedAnimation<Color>(AppColors.primary),
@@ -98,20 +98,20 @@ class _CircleIcon extends StatelessWidget {
       borderRadius: BorderRadius.circular(20),
       onTap: onTap,
       child: Container(
-        width: 32,
-        height: 32,
+        width: 38,
+        height: 38,
         decoration: BoxDecoration(
           color: AppColors.card,
           shape: BoxShape.circle,
           border: Border.all(color: AppColors.cardBorder),
         ),
-        child: Icon(icon, size: 16, color: AppColors.textPrimary),
+        child: Icon(icon, size: 18, color: AppColors.textPrimary),
       ),
     );
   }
 }
 
-/// Floating & Semi-Transparent Glassmorphic Bottom Navigation Bar: Dashboard, Fleet, More.
+/// Floating dark navigation pill: Dashboard, Fleet, More.
 class AyoBottomNav extends StatelessWidget {
   const AyoBottomNav({
     super.key,
@@ -132,22 +132,16 @@ class AyoBottomNav extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: EdgeInsets.only(
-        left: 20,
-        right: 20,
+        left: 24,
+        right: 24,
         bottom: MediaQuery.of(context).padding.bottom + 12,
       ),
-      height: 64,
+      height: 68,
       decoration: BoxDecoration(
-        color: AppColors.card.withValues(alpha: 0.92),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.cardBorder.withValues(alpha: 0.8)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 20,
-            offset: const Offset(0, 8),
-          ),
-        ],
+        color: AppColors.ink,
+        borderRadius: BorderRadius.circular(26),
+        border: Border.all(color: AppColors.inkBorder),
+        boxShadow: AppShadows.floating,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -180,32 +174,40 @@ class _NavItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? AppColors.primary : AppColors.navInactive;
+    final color = selected ? Colors.white : Colors.white.withValues(alpha: 0.55);
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(20),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
         decoration: BoxDecoration(
-          color: selected ? AppColors.primarySoft : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
+          color: selected ? AppColors.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, size: 22, color: color),
-            if (selected) ...[
-              const SizedBox(width: 8),
-              Text(
-                label,
-                style: AppText.body.copyWith(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-            ],
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              child: selected
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        label,
+                        style: AppText.body.copyWith(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: color,
+                          height: 1.2,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
           ],
         ),
       ),

@@ -4,7 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
 
 /// Labelled text field matching the Figma input pattern:
-/// small caps label above a soft-grey rounded field.
+/// label above a white field with a quiet border.
 class AppTextField extends StatelessWidget {
   const AppTextField({
     super.key,
@@ -49,18 +49,18 @@ class AppTextField extends StatelessWidget {
         prefixIcon: prefix,
         suffixIcon: suffix,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.field),
           borderSide: const BorderSide(color: AppColors.fieldBorder),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.field),
           borderSide: const BorderSide(color: AppColors.fieldBorder),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primary, width: 1.2),
+          borderRadius: BorderRadius.circular(AppRadius.field),
+          borderSide: const BorderSide(color: AppColors.ink, width: 1.6),
         ),
       ),
     );
@@ -69,8 +69,8 @@ class AppTextField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label!.toUpperCase(), style: AppText.fieldLabel),
-        const SizedBox(height: 6),
+        Text(label!, style: AppText.fieldLabel),
+        const SizedBox(height: 8),
         field,
       ],
     );
@@ -121,18 +121,18 @@ class AppDropdownField extends StatelessWidget {
         filled: true,
         fillColor: AppColors.fieldFill,
         contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.field),
           borderSide: const BorderSide(color: AppColors.fieldBorder),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.field),
           borderSide: const BorderSide(color: AppColors.fieldBorder),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primary, width: 1.2),
+          borderRadius: BorderRadius.circular(AppRadius.field),
+          borderSide: const BorderSide(color: AppColors.ink, width: 1.6),
         ),
       ),
     );
@@ -141,8 +141,8 @@ class AppDropdownField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label!.toUpperCase(), style: AppText.fieldLabel),
-        const SizedBox(height: 6),
+        Text(label!, style: AppText.fieldLabel),
+        const SizedBox(height: 8),
         dropdown,
       ],
     );

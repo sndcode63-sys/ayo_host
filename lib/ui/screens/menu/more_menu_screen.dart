@@ -260,7 +260,7 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('HOST TIER',
+                      Text('Host tier',
                           style: AppText.captionCaps
                               .copyWith(color: AppColors.primary)),
                       const SizedBox(height: 3),
@@ -279,7 +279,7 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('RESPONSE RATE', style: AppText.captionCaps),
+                      Text('Response rate', style: AppText.captionCaps),
                       const SizedBox(height: 3),
                       Text(
                         '${profile?.responseRate?.toStringAsFixed(0) ?? '99'}% · Instant',

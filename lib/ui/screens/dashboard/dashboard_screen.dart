@@ -606,49 +606,98 @@ class _RevenueCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
+    final change = stats?.revenueChangePercent ?? 0;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(AppRadius.card + 4),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [AppColors.inkRaised, AppColors.ink],
+        ),
+        border: Border.all(color: AppColors.inkBorder),
+        boxShadow: AppShadows.floating,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('TOTAL HOST REVENUE', style: AppText.captionCaps),
+              Text(
+                'Total host revenue',
+                style: AppText.body.copyWith(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withValues(alpha: 0.65),
+                ),
+              ),
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: AppColors.successSoft,
+                  color: const Color(0xFF2FD071).withValues(alpha: 0.16),
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(
-                  '↗ +${stats?.revenueChangePercent.toStringAsFixed(1) ?? '0'}%',
-                  style: AppText.captionCaps
-                      .copyWith(color: AppColors.success),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.trending_up_rounded,
+                        size: 14, color: Color(0xFF2FD071)),
+                    const SizedBox(width: 4),
+                    Text(
+                      '${change >= 0 ? '+' : ''}${change.toStringAsFixed(1)}%',
+                      style: AppText.captionCaps.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFF2FD071),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Expanded(
-                child: Text(
-                  money.format(stats?.totalRevenue ?? 0),
-                  style: AppText.screenTitle.copyWith(fontSize: 30),
-                ),
-              ),
-              Text('This Month',
-                  style: AppText.captionCaps
-                      .copyWith(color: AppColors.textMuted)),
-            ],
+          const SizedBox(height: 14),
+          Text(
+            money.format(stats?.totalRevenue ?? 0),
+            style: AppText.screenTitle.copyWith(
+              fontSize: 38,
+              letterSpacing: -1.2,
+              color: Colors.white,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
-            '+₹${(stats?.pendingPayout ?? 0).toInt()} pending payout ${stats?.payoutDate ?? ''}',
-            style:
-                AppText.body.copyWith(fontSize: 11, color: AppColors.success),
+            'This month',
+            style: AppText.captionCaps
+                .copyWith(color: Colors.white.withValues(alpha: 0.5)),
+          ),
+          const SizedBox(height: 18),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.account_balance_wallet_outlined,
+                    size: 18, color: Colors.white70),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '₹${(stats?.pendingPayout ?? 0).toInt()} pending payout ${stats?.payoutDate ?? ''}',
+                    style: AppText.body.copyWith(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withValues(alpha: 0.88),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -673,7 +722,7 @@ class _StatsRow extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('ACTIVE FLEET', style: AppText.captionCaps),
+                    Text('Active fleet', style: AppText.captionCaps),
                     const Icon(Icons.directions_car_filled_rounded,
                         size: 15, color: AppColors.primary),
                   ],
@@ -699,7 +748,7 @@ class _StatsRow extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('OCCUPANCY', style: AppText.captionCaps),
+                    Text('Occupancy', style: AppText.captionCaps),
                     const Icon(Icons.timelapse_rounded,
                         size: 15, color: AppColors.textMuted),
                   ],
