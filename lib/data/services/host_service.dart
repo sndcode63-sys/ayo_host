@@ -6,6 +6,7 @@ import '../../core/services/logger_service.dart';
 import '../../core/services/toast_service.dart';
 import '../models/models.dart';
 import 'api_client.dart';
+import 'trips_service.dart';
 
 class HostService {
   HostService._();
@@ -111,15 +112,21 @@ class HostService {
       final contentType = _getContentType(imageFile.path);
       LoggerService.info('1. Requesting vehicle photo presign for vehicle: $vehicleId (category: $category)...');
 
-      final presignRes = await ApiClient.instance.post(
-        ApiConfig.vehiclePhotosPresign(vehicleId),
-        data: {
-          'content_type': contentType,
-          'kind': 'PHOTO',
-        },
-      );
+      Map<String, dynamic> presignRes;
+      try {
+        presignRes = await ApiClient.instance.post(
+          ApiConfig.vehicleMediaPresign(vehicleId),
+          data: {'category': category.toUpperCase(), 'content_type': contentType},
+        );
+      } catch (_) {
+        presignRes = await ApiClient.instance.post(
+          ApiConfig.vehiclePhotosPresign(vehicleId),
+          data: {'content_type': contentType, 'kind': 'PHOTO'},
+        );
+      }
 
-      final presign = GcsPresignResponse.fromJson(presignRes['data'] as Map<String, dynamic>);
+      final presign = GcsPresignResponse.fromJson(
+          (presignRes['data'] is Map ? presignRes['data'] : presignRes) as Map<String, dynamic>);
       if (presign.uploadUrl.isEmpty) {
         throw Exception('Vehicle photo presigned URL is empty');
       }
@@ -133,13 +140,24 @@ class HostService {
 
       LoggerService.info('3. Confirming vehicle photo with Ayo Backend ($category)...');
       try {
-        await ApiClient.instance.post(
-          ApiConfig.vehiclePhotosConfirm(vehicleId),
-          data: {
-            'photo_ref': presign.key,
-            'category': category,
-          },
-        );
+        try {
+          await ApiClient.instance.post(
+            ApiConfig.vehiclePhotosBatch(vehicleId),
+            data: {
+              'photos': [
+                {'url': presign.key, 'category': category.toUpperCase()}
+              ],
+            },
+          );
+        } catch (_) {
+          await ApiClient.instance.post(
+            ApiConfig.vehiclePhotosConfirm(vehicleId),
+            data: {
+              'photo_ref': presign.key,
+              'category': category,
+            },
+          );
+        }
       } catch (e) {
         LoggerService.warning('Vehicle photo confirm warning: $e');
       }
@@ -214,6 +232,10 @@ class HostService {
     required String bio,
     required String avatarUrl,
     String? drivingLicenceNumber,
+    String? email,
+    String? drivingLicenceFrontUrl,
+    String? drivingLicenceBackUrl,
+    String? selfieUrl,
   }) async {
     try {
       LoggerService.info('Saving host profile');
@@ -243,16 +265,35 @@ class HostService {
       };
 
       if (drivingLicenceNumber != null && drivingLicenceNumber.trim().isNotEmpty) {
-        final dl = drivingLicenceNumber.trim();
-        payload['driving_licence_number'] = dl;
-        payload['driving_licence'] = dl;
-        payload['dl_number'] = dl;
+        payload['driving_licence_number'] = drivingLicenceNumber.trim();
       }
+      if (email != null && email.trim().isNotEmpty) payload['email'] = email.trim();
+      if (drivingLicenceFrontUrl != null && drivingLicenceFrontUrl.isNotEmpty) {
+        payload['driving_licence_front_url'] = drivingLicenceFrontUrl;
+      }
+      if (drivingLicenceBackUrl != null && drivingLicenceBackUrl.isNotEmpty) {
+        payload['driving_licence_back_url'] = drivingLicenceBackUrl;
+      }
+      if (selfieUrl != null && selfieUrl.isNotEmpty) payload['selfie_url'] = selfieUrl;
 
       final response = await ApiClient.instance.post(
         ApiConfig.hostProfile,
         data: payload,
       );
+
+      // Sync User entity via PATCH /users/me so NestJS User table & HostProfile stay 100% in sync
+      try {
+        await ApiClient.instance.patch(
+          ApiConfig.usersMePatch,
+          data: {
+            'name': '$firstName $lastName'.trim(),
+            if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+            if (avatarUrl.trim().isNotEmpty) 'avatar_url': avatarUrl.trim(),
+          },
+        );
+      } catch (e) {
+        LoggerService.info('User entity patch notice: $e');
+      }
 
       final profileData = response['data'];
       final profileMap = profileData is Map && profileData.containsKey('profile')
@@ -430,22 +471,117 @@ class HostService {
     }
   }
 
-  static Future<List<Vehicle>> getMyVehicles() async {
+  /// Fetches all vehicles for the host by merging the complete list from
+  /// `/vehicles/mine` (or `/vehicles/my`) with the live IoT/fleet status from `/vehicles/host/my-cars`.
+  static Future<List<Vehicle>> getMyVehicles({String? status}) async {
     try {
-      LoggerService.info('Fetching host vehicles from /vehicles/mine');
-      final response = await ApiClient.instance.get(ApiConfig.vehiclesMine);
+      final query = (status == null || status == 'all') ? null : {'status': status};
+      final vehicleMap = <String, Map<String, dynamic>>{};
 
-      final dynamic raw = response['data'];
-      List items = [];
-      if (raw is Map && raw['items'] is List) {
-        items = raw['items'];
-      } else if (raw is List) {
-        items = raw;
+      // 1) Fetch full inventory from /vehicles/mine (contains ALL: DRAFT, PENDING_REVIEW, ACTIVE)
+      try {
+        final resMine = await ApiClient.instance.get(ApiConfig.vehiclesMine, queryParameters: query);
+        LoggerService.info('Raw GET /vehicles/mine response: $resMine');
+        final rawMine = resMine['data'] ?? resMine;
+        List listMine = [];
+        if (rawMine is List) {
+          listMine = rawMine;
+        } else if (rawMine is Map) {
+          listMine = (rawMine['items'] ?? rawMine['vehicles'] ?? rawMine['cars'] ?? rawMine['fleet']) as List? ?? [];
+        }
+        for (final item in listMine) {
+          if (item is Map) {
+            final id = item['id']?.toString() ?? '';
+            if (id.isNotEmpty) {
+              vehicleMap[id] = Map<String, dynamic>.from(item);
+            }
+          }
+        }
+      } catch (e) {
+        LoggerService.info('/vehicles/mine query failed: $e, trying /vehicles/my fallback');
+        try {
+          final resMy = await ApiClient.instance.get(ApiConfig.vehiclesMy, queryParameters: query);
+          final rawMy = resMy['data'] ?? resMy;
+          List listMy = [];
+          if (rawMy is List) {
+            listMy = rawMy;
+          } else if (rawMy is Map) {
+            listMy = (rawMy['items'] ?? rawMy['vehicles'] ?? rawMy['cars'] ?? rawMy['fleet']) as List? ?? [];
+          }
+          for (final item in listMy) {
+            if (item is Map) {
+              final id = item['id']?.toString() ?? '';
+              if (id.isNotEmpty) {
+                vehicleMap[id] = Map<String, dynamic>.from(item);
+              }
+            }
+          }
+        } catch (_) {}
       }
 
-      return items
-          .map((e) => Vehicle.fromJson(e as Map<String, dynamic>))
-          .toList();
+      // 2) Enrich with IoT / Primary Car data from /vehicles/host/my-cars
+      try {
+        final res = await ApiClient.instance.get(ApiConfig.vehiclesHostMyCars);
+        LoggerService.info('Raw GET /vehicles/host/my-cars response: $res');
+        final raw = (res['data'] is Map ? res['data'] : res) as Map;
+        final myCarsList = <Map<String, dynamic>>[];
+        if (raw['primary_car'] is Map) {
+          myCarsList.add(Map<String, dynamic>.from(raw['primary_car'] as Map));
+        }
+        final carsList = raw['cars'] is List
+            ? raw['cars'] as List
+            : (raw['fleet'] is List
+                ? raw['fleet'] as List
+                : (raw['items'] is List
+                    ? raw['items'] as List
+                    : (raw['vehicles'] is List ? raw['vehicles'] as List : [])));
+        for (final e in carsList) {
+          if (e is Map) myCarsList.add(Map<String, dynamic>.from(e));
+        }
+
+        for (final car in myCarsList) {
+          final id = car['id']?.toString() ?? '';
+          if (id.isNotEmpty) {
+            if (vehicleMap.containsKey(id)) {
+              vehicleMap[id]!.addAll(car);
+            } else {
+              vehicleMap[id] = car;
+            }
+          }
+        }
+      } catch (e) {
+        LoggerService.info('my-cars route enrich failed: $e');
+      }
+
+      // 3) Hydrate full details (photos list, hourly rate) for vehicles from /vehicles/:id
+      await Future.wait(vehicleMap.keys.map((id) async {
+        try {
+          final existing = vehicleMap[id]!;
+          final existingPhotos = existing['photos'];
+          final existingHourly = existing['hourly_rate'];
+          if (existingPhotos == null || (existingPhotos is List && existingPhotos.isEmpty) || existingHourly == null) {
+            final detailed = await getVehicleById(id);
+            if (detailed != null) {
+              if (detailed.photos.isNotEmpty) {
+                existing['photos'] = detailed.photos;
+              }
+              if (detailed.hourlyRate > 0) {
+                existing['hourly_rate'] = detailed.hourlyRate;
+              }
+              if (detailed.imageUrl != null && existing['cover_photo_url'] == null) {
+                existing['cover_photo_url'] = detailed.imageUrl;
+              }
+            }
+          }
+        } catch (_) {}
+      }));
+
+      var list = vehicleMap.values.map(Vehicle.fromJson).toList();
+      if (query != null && status != null) {
+        final want = status.toUpperCase();
+        list = list.where((v) => v.status.toUpperCase() == want).toList();
+      }
+      return list;
     } catch (e) {
       LoggerService.error('Failed to fetch host vehicles', error: e);
       return [];
@@ -538,6 +674,22 @@ class HostService {
     }
   }
 
+  static Future<void> confirmPhotosBatch({
+    required String vehicleId,
+    required List<Map<String, String>> photos,
+  }) async {
+    try {
+      LoggerService.info('Batch confirming ${photos.length} photos for vehicle $vehicleId');
+      await ApiClient.instance.post(
+        ApiConfig.vehiclePhotosBatch(vehicleId),
+        data: {'photos': photos},
+      );
+      LoggerService.info('Batch photos confirmed successfully');
+    } catch (e) {
+      LoggerService.warning('Batch photos confirm failed: $e');
+    }
+  }
+
   static Future<Vehicle?> getVehicleById(String vehicleId) async {
     try {
       final response = await ApiClient.instance.get(ApiConfig.vehicleById(vehicleId));
@@ -570,19 +722,48 @@ class HostService {
   }) async {
     try {
       LoggerService.info('Verifying listing fee payment for vehicle: $vehicleId');
-      final response = await ApiClient.instance.post(
-        ApiConfig.vehiclePayListingFeeVerify(vehicleId),
-        data: {
-          'order_id': orderId,
-          'payment_id': paymentId,
-          'signature': signature,
-          'razorpay_order_id': orderId,
-          'razorpay_payment_id': paymentId,
-          'razorpay_signature': signature,
-        },
-      );
+      Map<String, dynamic> response;
+      try {
+        final res = await ApiClient.instance.post(
+          ApiConfig.vehiclePayListingFeeVerify(vehicleId),
+          data: {
+            'order_id': orderId,
+            'payment_id': paymentId,
+            'signature': signature,
+            'razorpay_order_id': orderId,
+            'razorpay_payment_id': paymentId,
+            'razorpay_signature': signature,
+          },
+        );
+        response = (res['data'] is Map ? res['data'] : res) as Map<String, dynamic>;
+      } catch (err) {
+        LoggerService.warning('Vehicle fee verify endpoint failed ($err), trying fallback /payments/verify');
+        try {
+          final res = await ApiClient.instance.post(
+            ApiConfig.paymentsVerify,
+            data: {
+              'vehicle_id': vehicleId,
+              'order_id': orderId,
+              'payment_id': paymentId,
+              'signature': signature,
+              'razorpay_order_id': orderId,
+              'razorpay_payment_id': paymentId,
+              'razorpay_signature': signature,
+            },
+          );
+          response = (res['data'] is Map ? res['data'] : res) as Map<String, dynamic>;
+        } catch (_) {
+          rethrow;
+        }
+      }
+
+      // Re-trigger submit to ensure backend transitions vehicle to PENDING_REVIEW
+      try {
+        await ApiClient.instance.post(ApiConfig.vehicleSubmit(vehicleId));
+      } catch (_) {}
+
       ToastService.showSuccess('Listing fee verified! Vehicle submitted for review.');
-      return response['data'] as Map<String, dynamic>;
+      return response;
     } catch (e) {
       LoggerService.error('Failed to verify listing fee payment', error: e);
       rethrow;
@@ -615,10 +796,23 @@ class HostService {
       if (resData != null && resData is Map) {
         final err = resData['error'] as Map<String, dynamic>? ?? {};
         final code = err['code']?.toString() ?? '';
+        if (code == 'MISSING_VEHICLE_DOCUMENTS') {
+          final missing = (err['missing_documents'] as List?)?.map((e) => e.toString()).toList() ?? [];
+          return SubmitVehicleResult(
+            success: false,
+            missingDocuments: missing,
+            message: err['message']?.toString() ?? 'All vehicle documents (RC, Commercial Insurance, Pollution) must be uploaded before listing',
+          );
+        }
         if (code == 'LISTING_FEE_REQUIRED' || e.response?.statusCode == 402) {
           final payment = err['payment'] as Map<String, dynamic>? ?? {};
           final orderId = payment['order_id']?.toString() ?? '';
-          final amount = payment['amount'] is int ? payment['amount'] as int : 49900;
+          var amount = payment['amount'] is int ? payment['amount'] as int : 0;
+          if (amount == 0) {
+            try {
+              amount = (await getListingFee()).feePaise;
+            } catch (_) {}
+          }
           final keyId = payment['key_id']?.toString() ?? ApiConfig.defaultRazorpayKey;
 
           LoggerService.info('Listing fee required (₹${(amount / 100).toInt()}) with Order ID: $orderId');
@@ -640,28 +834,93 @@ class HostService {
     }
   }
 
+  /// Guide route `POST /trips/:id/verify-handover` (token, odometer, fuel, host location).
+  /// Falls back to legacy `/trips/:id/start-handover` if the new route 404s.
   static Future<Map<String, dynamic>> startHandover({
     required String tripId,
     required String token,
     required double hostLat,
     required double hostLng,
+    int? odometerReading,
+    int? fuelPercent,
   }) async {
+    final body = {
+      'token': token,
+      'handover_token': token,
+      // ignore: use_null_aware_elements
+      if (odometerReading != null) 'odometer_reading': odometerReading,
+      // ignore: use_null_aware_elements
+      if (fuelPercent != null) 'fuel_percent': fuelPercent,
+      'host_lat': hostLat,
+      'host_lng': hostLng,
+    };
     try {
-      LoggerService.info('Starting handover for trip: $tripId');
-      final response = await ApiClient.instance.post(
-        ApiConfig.tripHandover(tripId),
-        data: {
-          'token': token,
-          'host_lat': hostLat,
-          'host_lng': hostLng,
-        },
-      );
-      ToastService.showSuccess('Handover complete! Trip started.');
-      return response['data'] as Map<String, dynamic>;
+      Map<String, dynamic> response;
+      try {
+        response = await ApiClient.instance.post(ApiConfig.tripVerifyHandover(tripId), data: body);
+      } on ApiException catch (e) {
+        if (e.statusCode != 404) rethrow;
+        response = await ApiClient.instance.post(ApiConfig.tripHandover(tripId), data: body);
+      } on DioException catch (e) {
+        if (e.response?.statusCode != 404) rethrow;
+        response = await ApiClient.instance.post(ApiConfig.tripHandover(tripId), data: body);
+      }
+      ToastService.showSuccess('Handover verified! Trip started.');
+      return (response['data'] is Map ? response['data'] : response) as Map<String, dynamic>;
     } catch (e) {
-      LoggerService.error('Failed to start handover', error: e);
+      LoggerService.error('Failed to verify handover', error: e);
       rethrow;
     }
+  }
+
+  /// `POST /trips/:id/end` — host concludes the trip, triggers deposit refund.
+  static Future<Map<String, dynamic>> endTrip(String tripId) async {
+    final res = await ApiClient.instance.post(
+      ApiConfig.tripEnd(tripId),
+      options: Options(headers: {
+        'Idempotency-Key': 'end_trip_${tripId}_${DateTime.now().millisecondsSinceEpoch}',
+      }),
+    );
+    return (res['data'] is Map ? res['data'] : res) as Map<String, dynamic>;
+  }
+
+  /// `POST /trips/:id/cancel`
+  static Future<Map<String, dynamic>> cancelTrip(String tripId, String reason) async {
+    final res = await ApiClient.instance.post(
+      ApiConfig.tripCancel(tripId),
+      data: {'reason': reason},
+      options: Options(headers: {
+        'Idempotency-Key': 'cancel_trip_${tripId}_${DateTime.now().millisecondsSinceEpoch}',
+      }),
+    );
+    return (res['data'] is Map ? res['data'] : res) as Map<String, dynamic>;
+  }
+
+  // ─────────── IoT lock / unlock + listing pause ───────────
+  static Future<bool> lockVehicle(String id) async {
+    final res = await ApiClient.instance.post(ApiConfig.vehicleLock(id));
+    return (res['success'] ?? res['data']?['success'] ?? true) == true;
+  }
+
+  static Future<bool> unlockVehicle(String id) async {
+    final res = await ApiClient.instance.post(ApiConfig.vehicleUnlock(id));
+    return (res['success'] ?? res['data']?['success'] ?? true) == true;
+  }
+
+  /// `PATCH /vehicles/:id/toggle-status` -> returns new status (ACTIVE / PAUSED).
+  static Future<String> toggleVehicleStatus(String id) async {
+    final res = await ApiClient.instance.patch(ApiConfig.vehicleToggleStatus(id));
+    final m = (res['data'] is Map ? res['data'] : res) as Map;
+    return m['status']?.toString() ?? '';
+  }
+
+  // ─────────── Reviews ───────────
+  static Future<VehicleReviewsPage> getVehicleReviews(String id, {int page = 1, int limit = 20}) async {
+    final res = await ApiClient.instance.get(
+      ApiConfig.vehicleReviews(id),
+      queryParameters: {'page': page, 'limit': limit},
+    );
+    return VehicleReviewsPage.fromJson((res['data'] is Map ? res['data'] : res) as Map<String, dynamic>);
   }
 
   static Future<SupportConfig> getSupportConfig() async {
@@ -692,6 +951,74 @@ class HostService {
         coverageText: 'Comprehensive insurance with 24/7 roadside assistance.',
         currency: 'INR',
       );
+    }
+  }
+
+  // ─────────── Identity documents (DL front / back / selfie) ───────────
+  static Map<String, dynamic> _unwrap(Map<String, dynamic> res) {
+    final d = res['data'];
+    return d is Map<String, dynamic> ? d : res;
+  }
+
+  /// [documentType]: DL_FRONT | DL_BACK | SELFIE. Returns the storage key that
+  /// goes into `driving_licence_front_url` / `_back_url` / `selfie_url`.
+  static Future<String> uploadHostDocument({
+    required String documentType,
+    required File file,
+  }) async {
+    try {
+      final mime = _getContentType(file.path);
+      final res = await ApiClient.instance.post(
+        ApiConfig.hostDocumentPresign,
+        data: {'document_type': documentType, 'content_type': mime},
+      );
+      final presign = GcsPresignResponse.fromJson(_unwrap(res));
+      if (presign.uploadUrl.isEmpty || presign.key.isEmpty) {
+        throw Exception('Upload URL not received from server');
+      }
+      await uploadBytesToGcs(file: file, uploadUrl: presign.uploadUrl, contentType: mime);
+      return presign.key;
+    } catch (e) {
+      LoggerService.error('Host document upload failed ($documentType)', error: e);
+      rethrow;
+    }
+  }
+
+  // ─────────── Dynamic listing fee ───────────
+  static Future<ListingFeeConfig> getListingFee() async {
+    Map<String, dynamic> res;
+    try {
+      res = await ApiClient.instance.get(ApiConfig.hostListingFee);
+    } catch (_) {
+      res = await ApiClient.instance.get(ApiConfig.listingFee);
+    }
+    return ListingFeeConfig.fromJson(_unwrap(res));
+  }
+
+  // ─────────── Earnings ───────────
+  static Future<EarningsStats> getEarnings() async {
+    try {
+      final res = await ApiClient.instance.get(ApiConfig.hostEarnings);
+      return EarningsStats.fromJson(_unwrap(res));
+    } catch (_) {
+      // Fallback: Compute dynamically from host's completed trips
+      try {
+        final completed = await TripsService.getCompletedTrips();
+        final total = completed.fold<double>(0, (sum, t) => sum + (t.rentPaise / 100.0));
+        return EarningsStats(
+          total: total,
+          thisMonth: total,
+          completedTrips: completed.length,
+          recent: completed.map((t) => EarningsEntry(
+            title: t.vehicle.isNotEmpty ? t.vehicle : 'Rental Trip',
+            subtitle: 'Completed Trip',
+            amount: t.rentPaise / 100.0,
+            status: 'PAID',
+          )).toList(),
+        );
+      } catch (_) {
+        return const EarningsStats();
+      }
     }
   }
 }

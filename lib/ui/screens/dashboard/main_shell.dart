@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/services/push_service.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/chrome.dart';
 import '../menu/more_menu_screen.dart';
@@ -26,6 +27,12 @@ class _MainShellState extends State<MainShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<DashboardController>().load();
       context.read<ProfileController>().load();
+
+      // Push: register FCM token with backend and keep the unread badge fresh.
+      final notifications = context.read<NotificationController>();
+      PushService.onActivity = notifications.refreshUnread;
+      notifications.refreshUnread();
+      PushService.init();
     });
   }
 

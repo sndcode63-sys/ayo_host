@@ -10,6 +10,7 @@ import '../../widgets/cards.dart';
 import '../../widgets/app_image_view.dart';
 import '../documents/vehicle_documents_screen.dart';
 import '../onboarding/vehicle_details_screen.dart';
+import '../reviews/vehicle_reviews_screen.dart';
 
 /// Full Fleet Management Screen for AYO Host with real backend data & filtering.
 class FleetScreen extends StatefulWidget {
@@ -28,15 +29,15 @@ class _FleetScreenState extends State<FleetScreen> {
     final allVehicles = dash.vehicles;
 
     final filteredVehicles = switch (_filter) {
-      'ACTIVE' => allVehicles.where((v) => v.status == 'ACTIVE').toList(),
-      'PENDING_REVIEW' => allVehicles.where((v) => v.status == 'PENDING_REVIEW').toList(),
-      'DRAFT' => allVehicles.where((v) => v.status == 'DRAFT').toList(),
+      'ACTIVE' => allVehicles.where((v) => v.status.toUpperCase() == 'ACTIVE').toList(),
+      'PENDING_REVIEW' => allVehicles.where((v) => v.status.toUpperCase().contains('REVIEW') || v.status.toUpperCase().contains('PENDING')).toList(),
+      'DRAFT' => allVehicles.where((v) => v.status.toUpperCase() == 'DRAFT').toList(),
       _ => allVehicles,
     };
 
-    final activeCount = allVehicles.where((v) => v.status == 'ACTIVE').length;
-    final reviewCount = allVehicles.where((v) => v.status == 'PENDING_REVIEW').length;
-    final draftCount = allVehicles.where((v) => v.status == 'DRAFT').length;
+    final activeCount = allVehicles.where((v) => v.status.toUpperCase() == 'ACTIVE').length;
+    final reviewCount = allVehicles.where((v) => v.status.toUpperCase().contains('REVIEW') || v.status.toUpperCase().contains('PENDING')).length;
+    final draftCount = allVehicles.where((v) => v.status.toUpperCase() == 'DRAFT').length;
 
     return Scaffold(
       appBar: AppBar(
@@ -47,8 +48,10 @@ class _FleetScreenState extends State<FleetScreen> {
           IconButton(
             icon: const Icon(Icons.add_circle_outline_rounded,
                 color: AppColors.primary, size: 28),
-            onPressed: () =>
-                Navigator.pushNamed(context, VehicleDetailsScreen.route),
+            onPressed: () {
+              context.read<OnboardingController>().resetVehicleDraft();
+              Navigator.pushNamed(context, VehicleDetailsScreen.route);
+            },
           ),
         ],
       ),
@@ -117,8 +120,10 @@ class _FleetScreenState extends State<FleetScreen> {
                                   ),
                                   const SizedBox(height: 20),
                                   ElevatedButton.icon(
-                                    onPressed: () => Navigator.pushNamed(
-                                        context, VehicleDetailsScreen.route),
+                                    onPressed: () {
+                                      context.read<OnboardingController>().resetVehicleDraft();
+                                      Navigator.pushNamed(context, VehicleDetailsScreen.route);
+                                    },
                                     icon: const Icon(Icons.add_rounded),
                                     label: const Text('Add Vehicle'),
                                     style: ElevatedButton.styleFrom(
@@ -210,12 +215,20 @@ class _AutoSlideVehicleImageCarouselState extends State<AutoSlideVehicleImageCar
   int _currentPage = 0;
 
   List<String> get _displayPhotos {
-    final valid = widget.photos.where((p) => p.trim().isNotEmpty).toList();
-    if (valid.isNotEmpty) return valid;
-    if (widget.fallbackUrl != null && widget.fallbackUrl!.trim().isNotEmpty) {
-      return [widget.fallbackUrl!.trim()];
+    final list = <String>[];
+    for (final p in widget.photos) {
+      final clean = p.trim();
+      if (clean.isNotEmpty && !list.contains(clean)) {
+        list.add(clean);
+      }
     }
-    return [];
+    if (widget.fallbackUrl != null && widget.fallbackUrl!.trim().isNotEmpty) {
+      final f = widget.fallbackUrl!.trim();
+      if (!list.contains(f)) {
+        list.insert(0, f);
+      }
+    }
+    return list;
   }
 
   @override
@@ -223,6 +236,16 @@ class _AutoSlideVehicleImageCarouselState extends State<AutoSlideVehicleImageCar
     super.initState();
     _pageController = PageController();
     _startAutoSlideTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant AutoSlideVehicleImageCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.photos.length != widget.photos.length ||
+        oldWidget.fallbackUrl != widget.fallbackUrl) {
+      _autoSlideTimer?.cancel();
+      _startAutoSlideTimer();
+    }
   }
 
   void _startAutoSlideTimer() {
@@ -401,8 +424,8 @@ class _FleetCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      '₹${vehicle.dailyRate.toInt()} / day',
-                      style: AppText.screenTitle.copyWith(fontSize: 16, color: AppColors.primary),
+                      vehicle.displayPrice,
+                      style: AppText.screenTitle.copyWith(fontSize: 15, color: AppColors.primary),
                     ),
                     Row(
                       children: [
@@ -425,11 +448,80 @@ class _FleetCard extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (vehicle.canControl) ...[
+                  const SizedBox(height: 10),
+                  _VehicleQuickActions(vehicle: vehicle),
+                ],
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Remote IoT lock/unlock, pause/resume listing and reviews for one vehicle.
+class _VehicleQuickActions extends StatelessWidget {
+  const _VehicleQuickActions({required this.vehicle});
+
+  final Vehicle vehicle;
+
+  @override
+  Widget build(BuildContext context) {
+    final dash = context.watch<DashboardController>();
+    final busy = dash.isBusy(vehicle.id);
+    final locked = vehicle.isLocked == true;
+    final online = vehicle.isOnline != false;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (vehicle.isOnline != null || vehicle.isLocked != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              '${online ? '🟢 Online' : '🔴 Offline'} · ${locked ? '🔒 Locked' : '🔓 Unlocked'} · 🔋 ${vehicle.batteryPercent}%',
+              style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
+            ),
+          ),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: (busy || !online || vehicle.isPaused)
+                    ? null
+                    : () => locked
+                        ? context.read<DashboardController>().unlockVehicle(vehicle.id)
+                        : context.read<DashboardController>().lockVehicle(vehicle.id),
+                icon: Icon(locked ? Icons.lock_open_rounded : Icons.lock_rounded, size: 15),
+                label: Text(locked ? 'Unlock' : 'Lock', style: const TextStyle(fontSize: 11.5)),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: busy ? null : () => context.read<DashboardController>().toggleVehicleStatus(vehicle.id),
+                icon: Icon(vehicle.isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 15),
+                label: Text(vehicle.isPaused ? 'Resume' : 'Pause', style: const TextStyle(fontSize: 11.5)),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => VehicleReviewsScreen(vehicleId: vehicle.id, vehicleName: vehicle.name),
+                  ),
+                ),
+                icon: const Icon(Icons.star_outline_rounded, size: 15),
+                label: const Text('Reviews', style: TextStyle(fontSize: 11.5)),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

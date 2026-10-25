@@ -7,6 +7,9 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/cards.dart';
+import '../../widgets/inputs.dart';
+import '../earnings/earnings_screen.dart';
+import '../notifications/notifications_screen.dart';
 import '../../widgets/app_image_view.dart';
 import '../account/account_details_screen.dart';
 import 'fleet_screen.dart';
@@ -23,6 +26,8 @@ class DashboardScreen extends StatelessWidget {
 
   void _showHandoverDialog(BuildContext context, Handover handover) {
     final tokenController = TextEditingController();
+    final odoController = TextEditingController();
+    final fuelController = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -40,13 +45,33 @@ class DashboardScreen extends StatelessWidget {
             Text('Guest: ${handover.guestName}', style: AppText.sectionTitle.copyWith(fontSize: 13)),
             Text('Vehicle: ${handover.vehicleName}', style: AppText.body.copyWith(fontSize: 11)),
             const SizedBox(height: 14),
-            TextField(
+            AppTextField(
+              label: 'Customer QR Handover Token',
+              hint: 'Paste or type token string...',
               controller: tokenController,
-              decoration: const InputDecoration(
-                labelText: 'Enter Customer QR Handover Token',
-                hintText: 'Paste or type token string...',
-                border: OutlineInputBorder(),
-              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: AppTextField(
+                    label: 'Odometer (km)',
+                    hint: 'e.g. 45210',
+                    controller: odoController,
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: AppTextField(
+                    label: 'Fuel / Charge %',
+                    hint: '0 - 100',
+                    controller: fuelController,
+                    keyboardType: TextInputType.number,
+                    maxLength: 3,
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -59,6 +84,14 @@ class DashboardScreen extends StatelessWidget {
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
             onPressed: () async {
               final token = tokenController.text.trim();
+              final odo = int.tryParse(odoController.text.trim());
+              final fuel = int.tryParse(fuelController.text.trim());
+              if (odo == null || fuel == null || fuel < 0 || fuel > 100) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Enter odometer reading and fuel % (0-100)')),
+                );
+                return;
+              }
               if (token.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Please enter or scan the QR token')),
@@ -69,8 +102,8 @@ class DashboardScreen extends StatelessWidget {
               await context.read<DashboardController>().startTripHandover(
                     tripId: handover.tripId,
                     token: token,
-                    hostLat: 12.9716,
-                    hostLng: 77.5946,
+                    odometerReading: odo,
+                    fuelPercent: fuel,
                   );
             },
             child: const Text('Start Handover', style: TextStyle(color: Colors.white)),
@@ -147,6 +180,7 @@ class DashboardScreen extends StatelessWidget {
               const Divider(),
               const SizedBox(height: 8),
               _DetailRow(label: 'Daily Rate', value: '₹${vehicle.dailyRate.toInt()} / day'),
+              _DetailRow(label: 'Hourly Rate', value: '₹${vehicle.effectiveHourlyRate.toInt()} / hr'),
               _DetailRow(label: 'Est. Monthly', value: '₹${(vehicle.dailyRate * 22).toInt()} / month'),
               _DetailRow(label: 'Pickup Address', value: vehicle.address ?? 'Indiranagar, Bengaluru'),
               _DetailRow(label: 'Listing Status', value: vehicle.status),
@@ -205,8 +239,10 @@ class DashboardScreen extends StatelessWidget {
         floatingActionButton: Padding(
           padding: const EdgeInsets.only(bottom: 70),
           child: FloatingActionButton(
-            onPressed: () =>
-                Navigator.pushNamed(context, VehicleDetailsScreen.route),
+            onPressed: () {
+              context.read<OnboardingController>().resetVehicleDraft();
+              Navigator.pushNamed(context, VehicleDetailsScreen.route);
+            },
             backgroundColor: AppColors.primary,
             shape: const CircleBorder(),
             child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
@@ -245,6 +281,31 @@ class DashboardScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 20),
+                    ],
+                    if (dash.activeTrips.isNotEmpty) ...[
+                      SectionHeader(
+                        title: 'Active Trips',
+                        trailing: '${dash.activeTrips.length} Live',
+                      ),
+                      const SizedBox(height: 10),
+                      for (final t in dash.activeTrips) ...[
+                        _TripActionCard(trip: t, isActive: true),
+                        const SizedBox(height: 10),
+                      ],
+                      const SizedBox(height: 10),
+                    ],
+                    if (dash.upcomingTrips.isNotEmpty) ...[
+                      SectionHeader(
+                        title: 'Upcoming Trips',
+                        trailing: '${dash.upcomingTrips.length}',
+                        trailingColor: AppColors.textMuted,
+                      ),
+                      const SizedBox(height: 10),
+                      for (final t in dash.upcomingTrips) ...[
+                        _TripActionCard(trip: t, isActive: false),
+                        const SizedBox(height: 10),
+                      ],
+                      const SizedBox(height: 10),
                     ],
                     SectionHeader(
                       title: 'My Cars',
@@ -361,23 +422,44 @@ class _TopBar extends StatelessWidget {
               },
             ),
             const SizedBox(width: 12),
-            Stack(
-              children: [
-                const Icon(Icons.notifications_outlined,
-                    size: 24, color: AppColors.textPrimary),
-                Positioned(
-                  right: 1,
-                  top: 1,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
+            Builder(
+              builder: (context) {
+                final unread = context.watch<NotificationController>().unread;
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.pushNamed(context, NotificationsScreen.route),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        const Icon(Icons.notifications_outlined,
+                            size: 26, color: AppColors.textPrimary),
+                        if (unread > 0)
+                          Positioned(
+                            right: -5,
+                            top: -4,
+                            child: Container(
+                              constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: AppColors.background, width: 1.5),
+                              ),
+                              alignment: Alignment.center,
+                              child: Text(
+                                unread > 99 ? '99+' : '$unread',
+                                style: const TextStyle(
+                                    color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w800, height: 1.1),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
-              ],
+                );
+              },
             ),
           ],
         ),
@@ -607,7 +689,9 @@ class _RevenueCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final change = stats?.revenueChangePercent ?? 0;
-    return Container(
+    return GestureDetector(
+      onTap: () => Navigator.pushNamed(context, EarningsScreen.route),
+      child: Container(
       width: double.infinity,
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
@@ -696,11 +780,13 @@ class _RevenueCard extends StatelessWidget {
                     ),
                   ),
                 ),
+                const Icon(Icons.chevron_right_rounded, size: 20, color: Colors.white54),
               ],
             ),
           ),
         ],
       ),
+    ),
     );
   }
 }
@@ -876,7 +962,7 @@ class _CarTile extends StatelessWidget {
                           style: AppText.sectionTitle.copyWith(fontSize: 14)),
                       const SizedBox(height: 3),
                       Text(
-                        '₹${vehicle.dailyRate.toInt()}/day · ${vehicle.plate.isNotEmpty ? vehicle.plate : 'Reg Pending'}',
+                        '${vehicle.displayPrice} · ${vehicle.plate.isNotEmpty ? vehicle.plate : 'Reg Pending'}',
                         style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
                       ),
                     ],
@@ -915,6 +1001,88 @@ class _DetailRow extends StatelessWidget {
               style: AppText.body.copyWith(fontSize: 11, fontWeight: FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+/// Active trip -> "End Trip"; upcoming trip -> "Cancel Trip".
+class _TripActionCard extends StatelessWidget {
+  const _TripActionCard({required this.trip, required this.isActive});
+
+  final Trip trip;
+  final bool isActive;
+
+  Future<void> _confirmEnd(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('End this trip?'),
+        content: const Text('Confirm the car is returned. The guest\'s security deposit refund will be triggered.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not yet')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('End Trip')),
+        ],
+      ),
+    );
+    if (ok == true && context.mounted) {
+      await context.read<DashboardController>().endTrip(trip.id);
+    }
+  }
+
+  Future<void> _confirmCancel(BuildContext context) async {
+    final reasonController = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancel this trip?'),
+        content: AppTextField(
+          label: 'Reason',
+          hint: 'Why are you cancelling?',
+          controller: reasonController,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Keep trip')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Cancel Trip')),
+        ],
+      ),
+    );
+    if (ok == true && context.mounted) {
+      final reason = reasonController.text.trim();
+      await context.read<DashboardController>().cancelTrip(trip.id, reason.isEmpty ? 'Cancelled by host' : reason);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fmt = DateFormat('MMM dd, hh:mm a');
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(trip.vehicle, style: AppText.sectionTitle.copyWith(fontSize: 13.5)),
+          const SizedBox(height: 2),
+          Text('Guest: ${trip.customer.name}', style: AppText.body.copyWith(fontSize: 11.5)),
+          Text('${fmt.format(trip.startTime.toLocal())} → ${fmt.format(trip.endTime.toLocal())}',
+              style: AppText.body.copyWith(fontSize: 11, color: AppColors.textMuted)),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: isActive
+                ? ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+                    onPressed: () => _confirmEnd(context),
+                    icon: const Icon(Icons.flag_rounded, size: 16, color: Colors.white),
+                    label: const Text('End Trip / Car Returned', style: TextStyle(color: Colors.white)),
+                  )
+                : OutlinedButton.icon(
+                    onPressed: () => _confirmCancel(context),
+                    icon: const Icon(Icons.cancel_outlined, size: 16),
+                    label: const Text('Cancel Trip'),
+                  ),
           ),
         ],
       ),

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
@@ -18,6 +19,11 @@ class AppTextField extends StatelessWidget {
     this.maxLines = 1,
     this.onChanged,
     this.onTap,
+    this.maxLength,
+    this.inputFormatters,
+    this.textCapitalization = TextCapitalization.none,
+    this.helper,
+    this.enabled = true,
   });
 
   final String? label;
@@ -30,11 +36,20 @@ class AppTextField extends StatelessWidget {
   final int maxLines;
   final ValueChanged<String>? onChanged;
   final VoidCallback? onTap;
+  final int? maxLength;
+  final List<TextInputFormatter>? inputFormatters;
+  final TextCapitalization textCapitalization;
+  final String? helper;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final field = TextField(
       controller: controller,
+      enabled: enabled,
+      maxLength: maxLength,
+      inputFormatters: inputFormatters,
+      textCapitalization: textCapitalization,
       keyboardType: keyboardType,
       readOnly: readOnly,
       maxLines: maxLines,
@@ -43,6 +58,9 @@ class AppTextField extends StatelessWidget {
       style: AppText.input,
       decoration: InputDecoration(
         hintText: hint,
+        helperText: helper,
+        helperStyle: AppText.body.copyWith(fontSize: 10.5, color: AppColors.textMuted),
+        counterText: '',
         hintStyle: AppText.input.copyWith(color: AppColors.textMuted),
         filled: true,
         fillColor: AppColors.fieldFill,

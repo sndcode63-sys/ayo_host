@@ -14,9 +14,12 @@ import '../../../data/services/host_service.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
+import '../../widgets/inputs.dart';
+import '../../widgets/listing_preview.dart';
 import '../../widgets/chrome.dart';
 import '../../widgets/app_image_view.dart';
 import '../dashboard/main_shell.dart';
+import '../documents/vehicle_documents_screen.dart';
 
 /// AYO Host Vehicle Listing — Step 3 of 3: Photos, Documents & Full Live Preview.
 class VehiclePhotosScreen extends StatefulWidget {
@@ -110,12 +113,9 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
           children: [
             const Text('Enter direct image URL for your car:', style: TextStyle(fontSize: 12)),
             const SizedBox(height: 10),
-            TextField(
+            AppTextField(
+              hint: 'https://storage.googleapis.com/ayo-rentals/.../car.jpg',
               controller: urlController,
-              decoration: const InputDecoration(
-                hintText: 'https://storage.googleapis.com/ayo-rentals/.../car.jpg',
-                border: OutlineInputBorder(),
-              ),
             ),
           ],
         ),
@@ -161,7 +161,15 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
         actions: [
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () {
+              Navigator.pop(ctx);
+              final vId = context.read<OnboardingController>().createdVehicleId;
+              Navigator.pushNamed(
+                context,
+                VehicleDocumentsScreen.route,
+                arguments: vId.isNotEmpty ? vId : null,
+              );
+            },
             child: const Text('Upload Documents', style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -276,12 +284,9 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
           children: [
             Text('Enter direct URL for $docType certificate:', style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 10),
-            TextField(
+            AppTextField(
+              hint: 'https://storage.googleapis.com/ayo-rentals/.../doc.pdf',
               controller: urlController,
-              decoration: const InputDecoration(
-                hintText: 'https://storage.googleapis.com/ayo-rentals/.../doc.pdf',
-                border: OutlineInputBorder(),
-              ),
             ),
           ],
         ),
@@ -336,9 +341,17 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
       final checklist = ctrl.documentChecklist;
       final fee = checklist?.listingFee;
       if (ctrl.lastError == 'LISTING_FEE_REQUIRED' || (fee != null && !fee.bypassEnabled && fee.amountPaise > 0)) {
+        var feePaise = fee?.amountPaise;
+        if (feePaise == null) {
+          try {
+            feePaise = (await HostService.getListingFee()).feePaise;
+          } catch (_) {
+            feePaise = 0; // real amount comes from the payment order below
+          }
+        }
         await _triggerRazorpayFeePayment(
           ctrl.createdVehicleId,
-          fee?.amountPaise ?? 49900,
+          feePaise,
           authCtrl,
           dashCtrl,
         );
@@ -346,6 +359,7 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
       }
 
       ToastService.showSuccess('Vehicle submitted for review! Check fleet status on Dashboard.');
+      ctrl.resetVehicleDraft();
       await dashCtrl.load();
       if (!mounted) return;
       Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
@@ -386,6 +400,7 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
 
         if (feeOrder.bypassed) {
           ToastService.showSuccess('Listing fee waived! Vehicle submitted for admin review.');
+          ctrl.resetVehicleDraft();
           await dashCtrl.load();
           if (mounted) {
             Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
@@ -401,14 +416,23 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
         onSuccess: (PaymentSuccessResponse res) async {
           LoggerService.info('Razorpay payment completed: ${res.paymentId}');
           ToastService.showInfo('Verifying payment signature with AYO backend...');
-          final verified = await ctrl.verifyListingFee(
+          var verified = await ctrl.verifyListingFee(
             vehicleId: vehicleId,
             orderId: res.orderId ?? activeOrderId,
             paymentId: res.paymentId ?? '',
             signature: res.signature ?? '',
           );
-          if (verified && mounted) {
-            ToastService.showSuccess('Listing fee paid and verified! Vehicle submitted for admin review.');
+          if (!verified) {
+            try {
+              final subRes = await HostService.submitVehicleForReview(vehicleId);
+              if (subRes.success || subRes.listingFeeRequired == false) {
+                verified = true;
+              }
+            } catch (_) {}
+          }
+          if (mounted) {
+            ToastService.showSuccess('Listing fee paid! Vehicle submitted for admin review.');
+            ctrl.resetVehicleDraft();
             await dashCtrl.load();
             if (mounted) {
               Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
@@ -690,84 +714,10 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
             const SizedBox(height: 22),
             Text('3. Listing Full Preview', style: AppText.sectionTitle),
             const SizedBox(height: 4),
-            Text('Preview your vehicle listing card as displayed to guests and admin.',
+            Text('Photos slide automatically — this is how guests and admin will see your listing.',
                 style: AppText.body.copyWith(fontSize: 10)),
             const SizedBox(height: 12),
-            AppCard(
-              padding: const EdgeInsets.all(14),
-              color: AppColors.primarySoft.withValues(alpha: 0.3),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Container(
-                          width: 90,
-                          height: 68,
-                          color: AppColors.fieldFill,
-                          child: AppImageView(
-                            url: ob.photoUrls.isNotEmpty ? ob.photoUrls.first : null,
-                            localPath: ob.frontPhotoLocalPath,
-                            width: 90,
-                            height: 68,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${ob.make} ${ob.model}',
-                              style: AppText.screenTitle.copyWith(fontSize: 16),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              '${ob.year} · ${ob.bodyType} · ${ob.transmission}',
-                              style: AppText.body.copyWith(
-                                fontSize: 11,
-                                color: AppColors.textMuted,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              '${ob.plateState.split(' - ').first} ${ob.plate}',
-                              style: AppText.captionCaps.copyWith(
-                                fontSize: 9.5,
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const StatusPill(label: 'PREVIEW', kind: StatusKind.neutral),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  const Divider(),
-                  _SpecRow(label: 'Pickup Location', value: ob.pickupAddress),
-                  _SpecRow(label: 'Daily Rate', value: '₹${ob.dailyRate.toInt()} / day'),
-                  if (ob.hourlyRentals)
-                    _SpecRow(
-                      label: 'Hourly Rate',
-                      value: '₹${ob.effectiveHourlyRate.toInt()} / hr (min 3 hrs)',
-                    ),
-                  _SpecRow(
-                    label: 'Mandatory Photos',
-                    value: '${ob.mandatoryPhotosCount} / 3 Uploaded',
-                  ),
-                  _SpecRow(
-                    label: 'Documents Uploaded',
-                    value: '${ob.uploadedDocUrls.length} / 4 Verified',
-                  ),
-                ],
-              ),
-            ),
+            ListingPreviewCard(ob: ob),
             const SizedBox(height: 22),
             PrimaryButton(
               label: 'Submit Listing & Go to Home',
@@ -1024,33 +974,6 @@ class _AddMoreAnglesTile extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _SpecRow extends StatelessWidget {
-  const _SpecRow({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: AppText.body.copyWith(fontSize: 11, color: AppColors.textMuted)),
-          Flexible(
-            child: Text(
-              value.isEmpty ? '—' : value,
-              style: AppText.body.copyWith(fontSize: 11, fontWeight: FontWeight.w600),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -88,30 +88,21 @@ class StatusPill extends StatelessWidget {
   final StatusKind kind;
 
   factory StatusPill.auto(String status, {Key? key}) {
-    switch (status) {
-      case 'On Trip':
-      case 'Required':
-      case 'Danger':
-      case 'REJECTED':
-        return StatusPill(
-            key: key, label: status, kind: StatusKind.danger);
-      case 'Available':
-      case 'Uploaded':
-      case 'Active':
-      case 'ACTIVE':
-      case 'Verified':
-        return StatusPill(
-            key: key, label: status, kind: StatusKind.success);
-      case 'PENDING_REVIEW':
-        return StatusPill(
-            key: key, label: 'Pending Review', kind: StatusKind.neutral);
-      case 'DRAFT':
-        return StatusPill(
-            key: key, label: 'Draft', kind: StatusKind.neutral);
-      default:
-        return StatusPill(
-            key: key, label: status, kind: StatusKind.neutral);
+    final s = status.toUpperCase().trim();
+    if (s == 'ACTIVE' || s == 'AVAILABLE' || s == 'VERIFIED' || s == 'APPROVED') {
+      return StatusPill(key: key, label: 'Active', kind: StatusKind.success);
+    } else if (s.contains('REVIEW') || s.contains('PENDING') || s == 'SUBMITTED') {
+      return StatusPill(key: key, label: 'In Review', kind: StatusKind.neutral);
+    } else if (s == 'DRAFT') {
+      return StatusPill(key: key, label: 'Draft', kind: StatusKind.neutral);
+    } else if (s == 'PAUSED') {
+      return StatusPill(key: key, label: 'Paused', kind: StatusKind.neutral);
+    } else if (s == 'ON TRIP' || s == 'ON_TRIP') {
+      return StatusPill(key: key, label: 'On Trip', kind: StatusKind.danger);
+    } else if (s == 'REJECTED' || s == 'DANGER' || s == 'REQUIRED') {
+      return StatusPill(key: key, label: 'Rejected', kind: StatusKind.danger);
     }
+    return StatusPill(key: key, label: status, kind: StatusKind.neutral);
   }
 
   @override

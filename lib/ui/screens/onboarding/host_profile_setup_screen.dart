@@ -10,6 +10,7 @@ import '../../../data/services/host_service.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/chrome.dart';
+import '../../widgets/doc_upload_tile.dart';
 import '../../widgets/inputs.dart';
 import '../../widgets/app_image_view.dart';
 import '../dashboard/main_shell.dart';
@@ -37,6 +38,9 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
   String _avatarUrl = '';
   String? _avatarLocalPath;
   bool _uploadingAvatar = false;
+  String? _dlFrontKey;
+  String? _dlBackKey;
+  String? _selfieKey;
 
   @override
   void initState() {
@@ -53,6 +57,9 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
     _bio = TextEditingController(text: profile?.bio ?? '');
     _dlNumber = TextEditingController(text: profile?.drivingLicenceNumber ?? '');
     _avatarUrl = profile?.avatarUrl ?? '';
+    _dlFrontKey = profile?.drivingLicenceFrontUrl;
+    _dlBackKey = profile?.drivingLicenceBackUrl;
+    _selfieKey = profile?.selfieUrl;
   }
 
   @override
@@ -135,14 +142,20 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
       return;
     }
 
-    try {
-      final parsedDob = DateTime.parse(dobText);
-      final ageYears = DateTime.now().difference(parsedDob).inDays ~/ 365;
-      if (ageYears < 18) {
-        ToastService.showWarning('Host must be at least 18 years old to list vehicles');
-        return;
-      }
-    } catch (_) {}
+    final parsedDob = DateTime.tryParse(dobText);
+    if (parsedDob == null) {
+      ToastService.showWarning('Please select a valid Date of Birth');
+      return;
+    }
+    final now = DateTime.now();
+    var age = now.year - parsedDob.year;
+    if (now.month < parsedDob.month || (now.month == parsedDob.month && now.day < parsedDob.day)) {
+      age--;
+    }
+    if (age < 21) {
+      ToastService.showWarning('You must be at least 21 years old to host on AYO');
+      return;
+    }
 
     if (cityText.isEmpty) {
       ToastService.showWarning('Please enter your city (e.g. Bengaluru, Mumbai)');
@@ -155,6 +168,16 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
       return;
     }
 
+    final emailText = _email.text.trim();
+    if (emailText.isNotEmpty && !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(emailText)) {
+      ToastService.showWarning('Please enter a valid email address');
+      return;
+    }
+    if (_dlFrontKey == null || _dlBackKey == null || _selfieKey == null) {
+      ToastService.showWarning('Please upload your DL front, DL back and a selfie');
+      return;
+    }
+
     final ok = await context.read<ProfileController>().save({
       'first_name': first,
       'last_name': last,
@@ -163,8 +186,10 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
       'bio': _bio.text.trim().isNotEmpty ? _bio.text.trim() : 'Experienced car host on Ayo platform',
       'avatar_url': _avatarUrl,
       'driving_licence_number': dlText,
-      'driving_licence': dlText,
-      'dl_number': dlText,
+      'driving_licence_front_url': _dlFrontKey,
+      'driving_licence_back_url': _dlBackKey,
+      'selfie_url': _selfieKey,
+      if (emailText.isNotEmpty) 'email': emailText,
     });
     if (mounted && ok) {
       ToastService.showSuccess('Host profile saved! Moving to Payout Setup.');
@@ -340,6 +365,42 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
               controller: _dlNumber,
               prefix: const Icon(Icons.badge_outlined,
                   size: 17, color: AppColors.primary),
+            ),
+            const SizedBox(height: 14),
+            const SizedBox(height: 6),
+            Text('Identity verification', style: AppText.sectionTitle),
+            const SizedBox(height: 4),
+            Text(
+              'Upload clear photos of your driving licence and a selfie. We review them within 24 hours.',
+              style: AppText.body,
+            ),
+            const SizedBox(height: 12),
+            DocUploadTile(
+              title: 'Driving licence · front',
+              hint: 'All four corners visible, no glare',
+              icon: Icons.credit_card_rounded,
+              documentType: 'DL_FRONT',
+              uploadedKey: _dlFrontKey,
+              onUploaded: (k) => setState(() => _dlFrontKey = k),
+            ),
+            const SizedBox(height: 10),
+            DocUploadTile(
+              title: 'Driving licence · back',
+              hint: 'Include the address and validity details',
+              icon: Icons.flip_to_back_rounded,
+              documentType: 'DL_BACK',
+              uploadedKey: _dlBackKey,
+              onUploaded: (k) => setState(() => _dlBackKey = k),
+            ),
+            const SizedBox(height: 10),
+            DocUploadTile(
+              title: 'Selfie',
+              hint: 'Face the camera in good light',
+              icon: Icons.face_retouching_natural_rounded,
+              documentType: 'SELFIE',
+              selfie: true,
+              uploadedKey: _selfieKey,
+              onUploaded: (k) => setState(() => _selfieKey = k),
             ),
             const SizedBox(height: 14),
             AppTextField(

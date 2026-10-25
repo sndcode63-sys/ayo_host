@@ -10,7 +10,9 @@ import '../../widgets/cards.dart';
 import '../account/account_details_screen.dart';
 import '../auth/sign_in_screen.dart';
 import '../dashboard/fleet_screen.dart';
+import '../earnings/earnings_screen.dart';
 import '../insights/performance_insights_screen.dart';
+import '../notifications/notifications_screen.dart';
 import '../onboarding/payout_setup_screen.dart';
 import '../onboarding/vehicle_details_screen.dart';
 
@@ -312,7 +314,19 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                 icon: Icons.add_circle_outline_rounded,
                 title: 'Add New Vehicle',
                 subtitle: 'Onboard a car, set daily rates & location',
-                onTap: () => Navigator.pushNamed(context, VehicleDetailsScreen.route),
+                onTap: () {
+                  context.read<OnboardingController>().resetVehicleDraft();
+                  Navigator.pushNamed(context, VehicleDetailsScreen.route);
+                },
+              ),
+              _MenuItem(
+                icon: Icons.notifications_active_outlined,
+                title: 'Notifications',
+                subtitle: 'Booking, KYC and payout updates',
+                tag: context.watch<NotificationController>().unread > 0
+                    ? '${context.watch<NotificationController>().unread} new'
+                    : null,
+                onTap: () => Navigator.pushNamed(context, NotificationsScreen.route),
               ),
               _MenuItem(
                 icon: Icons.insights_rounded,
@@ -332,6 +346,12 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                 title: 'Payout & Bank Settings',
                 subtitle: profile?.payoutMethod ?? 'UPI / Bank Transfer configured',
                 onTap: () => Navigator.pushNamed(context, PayoutSetupScreen.route),
+              ),
+              _MenuItem(
+                icon: Icons.payments_outlined,
+                title: 'Earnings & Payouts',
+                subtitle: 'Total, pending payout and trip earnings',
+                onTap: () => Navigator.pushNamed(context, EarningsScreen.route),
               ),
               _MenuItem(
                 icon: Icons.receipt_long_outlined,

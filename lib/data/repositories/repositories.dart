@@ -62,30 +62,46 @@ class AuthRepository {
 
 /// Dashboard stats + fleet repository calls.
 class HostRepository {
-  HostRepository(this._api);
-  final ApiClient _api;
+  HostRepository([ApiClient? _]);
 
   Future<DashboardStats> fetchDashboard() async {
     try {
-      final res = await _api.get('/host/dashboard');
-      return DashboardStats.fromJson(res['data'] ?? res);
-    } catch (_) {
-      // Aggregate dynamically from real host vehicles, trips, and profile
       final vehicles = await fetchVehicles();
       final profile = await fetchProfile();
-      final activeCount = vehicles.where((v) => v.status == 'ACTIVE' || v.status == 'ON_TRIP').length;
-      final totalDailyRent = vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate);
+      EarningsStats? earnings;
+      try {
+        earnings = await HostService.getEarnings();
+      } catch (_) {}
+
+      final activeCount = vehicles.where((v) => v.status == 'ACTIVE' || v.isOnTrip).length;
+      final totalVeh = vehicles.length;
+      final occ = totalVeh > 0 ? ((activeCount / totalVeh) * 100.0) : 0.0;
+      final totalRev = earnings?.total != null && earnings!.total > 0
+          ? earnings.total
+          : vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate);
 
       return DashboardStats(
-        greeting: 'Welcome,',
+        greeting: 'Welcome back,',
         hostName: profile.firstName.isNotEmpty ? profile.firstName : 'Host Partner',
-        totalRevenue: totalDailyRent,
+        totalRevenue: totalRev,
+        revenueChangePercent: earnings?.changePercent ?? 0,
+        pendingPayout: earnings?.pendingPayout ?? 0,
+        payoutDate: 'Auto Transfer',
+        activeRides: activeCount,
+        totalVehicles: totalVeh,
+        occupancyPercent: occ,
+      );
+    } catch (_) {
+      return const DashboardStats(
+        greeting: 'Hello,',
+        hostName: 'Host Partner',
+        totalRevenue: 0,
         revenueChangePercent: 0,
         pendingPayout: 0,
         payoutDate: 'Auto Transfer',
-        activeRides: activeCount,
-        totalVehicles: vehicles.length,
-        occupancyPercent: vehicles.isEmpty ? 0 : ((activeCount / vehicles.length) * 100),
+        activeRides: 0,
+        totalVehicles: 0,
+        occupancyPercent: 0,
       );
     }
   }
@@ -107,6 +123,10 @@ class HostRepository {
       bio: payload['bio'] ?? '',
       avatarUrl: payload['avatar_url'] ?? payload['avatarUrl'] ?? '',
       drivingLicenceNumber: payload['driving_licence_number'] ?? payload['driving_licence'] ?? payload['dl_number'],
+      email: payload['email'],
+      drivingLicenceFrontUrl: payload['driving_licence_front_url'],
+      drivingLicenceBackUrl: payload['driving_licence_back_url'],
+      selfieUrl: payload['selfie_url'],
     );
   }
 
@@ -150,6 +170,10 @@ class OnboardingRepository {
 
   Future<Map<String, dynamic>> createVehicleListing(Map<String, dynamic> payload) async {
     return await HostService.createVehicle(payload);
+  }
+
+  Future<Map<String, dynamic>> updateVehicleListing(String id, Map<String, dynamic> payload) async {
+    return await HostService.updateVehicle(id, payload);
   }
 
   Future<DocumentStatusChecklist?> fetchDocumentStatus(String vehicleId) async {

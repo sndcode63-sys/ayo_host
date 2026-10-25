@@ -8,6 +8,7 @@ import '../../../data/services/host_service.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
+import '../../widgets/inputs.dart';
 import '../../widgets/chrome.dart';
 import '../dashboard/main_shell.dart';
 import 'vehicle_details_screen.dart';
@@ -239,40 +240,16 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: TextField(
+                    child: AppTextField(
+                      hint: 'yourname@okaxis',
                       controller: _upiController,
-                      style: AppText.input.copyWith(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600),
-                      decoration: InputDecoration(
-                        hintText: 'yourname@okaxis',
-                        filled: true,
-                        fillColor: AppColors.card,
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 13),
-                        prefixIcon: const Icon(Icons.alternate_email_rounded,
-                            size: 17, color: AppColors.primary),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: AppColors.primaryBorder),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: AppColors.primaryBorder),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(
-                              color: AppColors.primary, width: 1.2),
-                        ),
-                      ),
+                      prefix: const Icon(Icons.alternate_email_rounded,
+                          size: 17, color: AppColors.primary),
                     ),
                   ),
                   const SizedBox(width: 8),
                   SizedBox(
-                    height: 46,
+                    height: 52,
                     child: ElevatedButton(
                       onPressed: ob.verifyingUpi ? null : _verify,
                       style: ElevatedButton.styleFrom(
@@ -324,49 +301,33 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                 ),
               ],
             ] else ...[
-              Text('Bank account number', style: AppText.fieldLabel),
-              const SizedBox(height: 6),
-              TextField(
+              AppTextField(
+                label: 'Bank account number',
+                hint: 'e.g. 50100234567890',
                 controller: _accountNumberController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  hintText: 'e.g. 50100234567890',
-                  border: OutlineInputBorder(),
-                ),
               ),
-              const SizedBox(height: 12),
-              Text('Confirm bank account number', style: AppText.fieldLabel),
-              const SizedBox(height: 6),
-              TextField(
+              const SizedBox(height: 14),
+              AppTextField(
+                label: 'Confirm bank account number',
+                hint: 'Re-enter bank account number',
                 controller: _confirmAccountNumberController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  hintText: 'Re-enter bank account number',
-                  border: OutlineInputBorder(),
-                ),
               ),
-              const SizedBox(height: 12),
-              Text('IFSC code', style: AppText.fieldLabel),
-              const SizedBox(height: 6),
-              TextField(
+              const SizedBox(height: 14),
+              AppTextField(
+                label: 'IFSC code',
+                hint: 'e.g. HDFC0001234',
                 controller: _ifscController,
                 textCapitalization: TextCapitalization.characters,
-                decoration: const InputDecoration(
-                  hintText: 'e.g. HDFC0001234',
-                  border: OutlineInputBorder(),
-                ),
               ),
-              const SizedBox(height: 12),
-              Text('Account holder name', style: AppText.fieldLabel),
-              const SizedBox(height: 6),
-              TextField(
+              const SizedBox(height: 14),
+              AppTextField(
+                label: 'Account holder name',
+                hint: profile?.fullName.isNotEmpty == true
+                    ? profile!.fullName
+                    : 'Full Name on Bank Record',
                 controller: _accountHolderController,
-                decoration: InputDecoration(
-                  hintText: profile?.fullName.isNotEmpty == true
-                      ? profile!.fullName
-                      : 'Full Name on Bank Record',
-                  border: const OutlineInputBorder(),
-                ),
               ),
             ],
             const SizedBox(height: 18),

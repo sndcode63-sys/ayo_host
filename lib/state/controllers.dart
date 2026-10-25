@@ -6,12 +6,15 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import '../core/services/location_service.dart';
 import '../core/services/logger_service.dart';
 import '../core/services/toast_service.dart';
 import '../data/models/models.dart';
 import '../data/repositories/repositories.dart';
 import '../data/services/host_service.dart';
+import '../data/services/notification_service.dart';
 import '../data/services/trips_service.dart';
+import '../core/services/push_service.dart';
 import '../ui/widgets/app_image_view.dart';
 
 class AuthController extends ChangeNotifier {
@@ -239,6 +242,7 @@ class DashboardController extends ChangeNotifier {
   DashboardStats? stats;
   List<Vehicle> vehicles = [];
   List<Trip> upcomingTrips = [];
+  List<Trip> activeTrips = [];
   HostProfile? hostProfile;
   SupportConfig? supportConfig;
   PlatformPolicies? platformPolicies;
@@ -319,6 +323,7 @@ class DashboardController extends ChangeNotifier {
       platformPolicies = results[4] as PlatformPolicies;
       onboardingStatus = results[5] as OnboardingStatus;
       paymentsConfig = results[6] as PaymentsConfig;
+      activeTrips = await TripsService.getActiveTrips();
 
       Handover? nextHandover;
       if (upcomingTrips.isNotEmpty) {
@@ -337,7 +342,7 @@ class DashboardController extends ChangeNotifier {
       final totalRevenue = vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate);
 
       stats = DashboardStats(
-        greeting: 'Welcome,',
+        greeting: 'Welcome back,',
         hostName: hostProfile?.firstName.isNotEmpty == true
             ? hostProfile!.firstName
             : 'Host Partner',
@@ -361,22 +366,106 @@ class DashboardController extends ChangeNotifier {
   Future<bool> startTripHandover({
     required String tripId,
     required String token,
-    required double hostLat,
-    required double hostLng,
+    double? hostLat,
+    double? hostLng,
+    int? odometerReading,
+    int? fuelPercent,
   }) async {
     try {
+      // Use the host's real location; fall back to the vehicle's saved pickup point.
+      var lat = hostLat;
+      var lng = hostLng;
+      if (lat == null || lng == null) {
+        final pos = await LocationService.currentPosition();
+        if (pos != null) {
+          lat = pos.lat;
+          lng = pos.lng;
+        } else {
+          final v = vehicles.where((x) => x.lat != null && x.lng != null);
+          if (v.isNotEmpty) {
+            lat = v.first.lat;
+            lng = v.first.lng;
+          }
+        }
+      }
+      if (lat == null || lng == null) {
+        ToastService.showError('Location unavailable. Please enable location to verify handover.');
+        return false;
+      }
       await HostService.startHandover(
         tripId: tripId,
         token: token,
-        hostLat: hostLat,
-        hostLng: hostLng,
+        hostLat: lat,
+        hostLng: lng,
+        odometerReading: odometerReading,
+        fuelPercent: fuelPercent,
       );
       await load();
       return true;
     } catch (e) {
+      ToastService.showError('Handover failed: $e');
       return false;
     }
   }
+
+  // ─────────── Trip end / cancel ───────────
+  Future<bool> endTrip(String tripId) async {
+    try {
+      await HostService.endTrip(tripId);
+      ToastService.showSuccess('Trip completed. Security deposit refund triggered.');
+      await load();
+      return true;
+    } catch (e) {
+      ToastService.showError('Could not end trip: $e');
+      return false;
+    }
+  }
+
+  Future<bool> cancelTrip(String tripId, String reason) async {
+    try {
+      await HostService.cancelTrip(tripId, reason);
+      ToastService.showSuccess('Trip cancelled.');
+      await load();
+      return true;
+    } catch (e) {
+      ToastService.showError('Could not cancel trip: $e');
+      return false;
+    }
+  }
+
+  // ─────────── Vehicle remote controls ───────────
+  final Set<String> busyVehicleIds = {};
+  bool isBusy(String id) => busyVehicleIds.contains(id);
+
+  Future<void> _runVehicleAction(String id, Future<void> Function() action) async {
+    if (busyVehicleIds.contains(id)) return;
+    busyVehicleIds.add(id);
+    notifyListeners();
+    try {
+      await action();
+      await load();
+    } catch (e) {
+      ToastService.showError('Action failed: $e');
+    } finally {
+      busyVehicleIds.remove(id);
+      notifyListeners();
+    }
+  }
+
+  Future<void> lockVehicle(String id) => _runVehicleAction(id, () async {
+        final ok = await HostService.lockVehicle(id);
+        ok ? ToastService.showSuccess('Car locked') : ToastService.showError('Lock failed');
+      });
+
+  Future<void> unlockVehicle(String id) => _runVehicleAction(id, () async {
+        final ok = await HostService.unlockVehicle(id);
+        ok ? ToastService.showSuccess('Car unlocked') : ToastService.showError('Unlock failed');
+      });
+
+  Future<void> toggleVehicleStatus(String id) => _runVehicleAction(id, () async {
+        final status = await HostService.toggleVehicleStatus(id);
+        ToastService.showSuccess(status == 'PAUSED' ? 'Listing paused' : 'Listing resumed');
+      });
 }
 
 class ProfileController extends ChangeNotifier {
@@ -482,6 +571,14 @@ class OnboardingController extends ChangeNotifier {
   bool hourlyRentals = false;
   bool hostDelivery = false;
   String pickupAddress = '';
+  double? pickupLat;
+  double? pickupLng;
+  bool locationLoading = false;
+  double weekendRate = 0; // in Rupees, 0 = auto (1.2x daily)
+  int seatingCapacity = 5;
+  String mileage = '';
+  String drivetrain = '2WD';
+  String fuelType = 'Petrol';
 
   // 3 Mandatory Vehicle Listing Photo Slots (Front/Cover, Interior, Rear)
   String frontPhotoUrl = '';      // Front Angle (COVER) - Mandatory
@@ -631,6 +728,11 @@ class OnboardingController extends ChangeNotifier {
 
   void resetVehicleDraft() {
     createdVehicleId = '';
+    submitResult = null;
+    lastError = null;
+    saving = false;
+    uploadingPhoto = false;
+    documentsLoading = false;
     bodyType = 'Sedan';
     make = '';
     model = '';
@@ -644,6 +746,13 @@ class OnboardingController extends ChangeNotifier {
     hourlyRentals = false;
     hostDelivery = false;
     pickupAddress = '';
+    pickupLat = null;
+    pickupLng = null;
+    weekendRate = 0;
+    seatingCapacity = 5;
+    mileage = '';
+    drivetrain = '2WD';
+    fuelType = 'Petrol';
     frontPhotoUrl = '';
     frontPhotoLocalPath = null;
     interiorPhotoUrl = '';
@@ -658,6 +767,32 @@ class OnboardingController extends ChangeNotifier {
   }
 
   double get estimatedMonthly => dailyRate * 22;
+
+  /// Auto-detect pickup location from device GPS (address + pincode + coordinates).
+  /// [onlyIfEmpty] keeps anything the host already typed.
+  Future<bool> autoFetchCurrentLocation({bool silent = false}) async {
+    if (locationLoading) return false;
+    locationLoading = true;
+    notifyListeners();
+    try {
+      final p = await LocationService.currentPlace();
+      if (p == null) {
+        if (!silent) {
+          ToastService.showWarning('Location unavailable. Enable GPS/permission or enter pincode manually.');
+        }
+        return false;
+      }
+      pickupLat = p.lat;
+      pickupLng = p.lng;
+      if (p.pincode.isNotEmpty) pincode = p.pincode;
+      if (p.address.isNotEmpty) pickupAddress = p.address;
+      if (!silent) ToastService.showSuccess('Current location fetched');
+      return true;
+    } finally {
+      locationLoading = false;
+      notifyListeners();
+    }
+  }
 
   /// Pincode Lookup API (https://api.postalpincode.in/pincode/$pin)
   Future<bool> fetchAddressFromPincode(String pin) async {
@@ -694,6 +829,9 @@ class OnboardingController extends ChangeNotifier {
             plateState = matchedState;
 
             ToastService.showSuccess('Location fetched: $district, $state');
+            final g = await LocationService.geocodeAddress('$name, $district, $state, $cleanPin, India');
+            pickupLat = g?.lat;
+            pickupLng = g?.lng;
             notifyListeners();
             return true;
           }
@@ -771,6 +909,9 @@ class OnboardingController extends ChangeNotifier {
         } else {
           addAdditionalPhoto(url, localPath: file.path);
         }
+      }
+      if (createdVehicleId.isNotEmpty) {
+        VehiclePhotosCache.set(createdVehicleId, photoUrls);
       }
       notifyListeners();
       return url;
@@ -915,6 +1056,24 @@ class OnboardingController extends ChangeNotifier {
       return false;
     }
 
+    // Resolve pickup coordinates: saved (GPS / pincode) -> geocode typed address -> device GPS.
+    double? lat = pickupLat;
+    double? lng = pickupLng;
+    if (lat == null || lng == null) {
+      final g = await LocationService.geocodeAddress('$pickupAddress $pincode India');
+      lat = g?.lat;
+      lng = g?.lng;
+    }
+    if (lat == null || lng == null) {
+      final pos = await LocationService.currentPosition();
+      lat = pos?.lat;
+      lng = pos?.lng;
+    }
+    if (lat == null || lng == null) {
+      ToastService.showWarning('Could not locate the pickup address. Tap "Use current location" or enter a valid pincode.');
+      return false;
+    }
+
     saving = true;
     lastError = null;
     notifyListeners();
@@ -931,26 +1090,73 @@ class OnboardingController extends ChangeNotifier {
         'registration_number': '${plateState.split(' - ').first} ${plate.trim().toUpperCase()}',
         'name': '${make.trim()} ${model.trim()}',
         'description': 'Host vehicle listed on AYO platform.',
-        'daily_rate': ratePaise,
-        'weekend_daily_rate': (ratePaise * 1.2).round(),
-        'hourly_rate': hourlyRentals ? (ratePaise / 10).round() : 0,
-        'lat': 12.9716,
-        'lng': 77.5946,
+        'daily_rate': dailyRate.toInt(),
+        'daily_rate_inr': dailyRate.toInt(),
+        'daily_rate_paise': ratePaise,
+        'weekend_daily_rate': weekendRate > 0 ? weekendRate.toInt() : (dailyRate * 1.2).round(),
+        'hourly_rate': hourlyRentals ? (hourlyRate > 0 ? hourlyRate.toInt() : (dailyRate / 10).round()) : 0,
+        'hourly_rate_inr': hourlyRentals ? (hourlyRate > 0 ? hourlyRate.toInt() : (dailyRate / 10).round()) : 0,
+        'lat': lat,
+        'lng': lng,
+        'location': {
+          'lat': lat,
+          'lng': lng,
+          'address': pickupAddress.trim(),
+        },
+        'seating_capacity': seatingCapacity,
+        'mileage': mileage.trim().isEmpty ? 'N/A' : mileage.trim(),
+        'drivetrain': drivetrain,
+        'fuel_type': fuelType,
         'address': pickupAddress.trim(),
         'photos': validPhotos,
+        'cover_photo_url': frontPhotoUrl.isNotEmpty ? frontPhotoUrl : (validPhotos.isNotEmpty ? validPhotos.first : null),
+        'photo_categories': {
+          'cover': frontPhotoUrl,
+          'interior': interiorPhotoUrl,
+          'rear_trunk': rearPhotoUrl,
+          'other': additionalPhotoUrls,
+        },
         'instant_unlock': true,
         'delivery_available': hostDelivery,
-        'delivery_fee': hostDelivery ? 50000 : 0,
+        'delivery_fee': hostDelivery ? 500 : 0,
         'km_limit_per_day': 250,
-        'extra_km_fee': 2500,
+        'extra_km_fee': 25,
         'smoking_allowed': false,
         'pets_allowed': true,
         'return_condition_note': 'Return with minimum 20% fuel/charge.',
       };
 
-      final result = await _repo.createVehicleListing(payload);
-      if (result.containsKey('id')) {
-        createdVehicleId = result['id'].toString();
+      if (createdVehicleId.isEmpty) {
+        final result = await _repo.createVehicleListing(payload);
+        if (result.containsKey('id')) {
+          createdVehicleId = result['id'].toString();
+        }
+      }
+
+      // CRITICAL: Always PATCH vehicle specs so make, model, name, year, daily_rate, location, plate are stored permanently on backend!
+      if (createdVehicleId.isNotEmpty) {
+        try {
+          await _repo.updateVehicleListing(createdVehicleId, payload);
+        } catch (e) {
+          LoggerService.warning('Vehicle specs patch warning: $e');
+        }
+      }
+
+      if (createdVehicleId.isNotEmpty) {
+        // Batch confirm photos with official uppercase categories (COVER, INTERIOR, REAR_TRUNK, OTHER)
+        try {
+          final photosBatch = <Map<String, String>>[];
+          if (frontPhotoUrl.isNotEmpty) photosBatch.add({'url': frontPhotoUrl, 'category': 'COVER'});
+          if (interiorPhotoUrl.isNotEmpty) photosBatch.add({'url': interiorPhotoUrl, 'category': 'INTERIOR'});
+          if (rearPhotoUrl.isNotEmpty) photosBatch.add({'url': rearPhotoUrl, 'category': 'REAR_TRUNK'});
+          for (final u in additionalPhotoUrls) {
+            if (u.isNotEmpty) photosBatch.add({'url': u, 'category': 'OTHER'});
+          }
+          if (photosBatch.isNotEmpty) {
+            await HostService.confirmPhotosBatch(vehicleId: createdVehicleId, photos: photosBatch);
+          }
+          VehiclePhotosCache.set(createdVehicleId, photoUrls);
+        } catch (_) {}
 
         // Confirm vehicle documents with backend (RC, INSURANCE, POLLUTION only - DL is on Host Profile)
         for (final entry in uploadedDocUrls.entries) {
@@ -970,6 +1176,11 @@ class OnboardingController extends ChangeNotifier {
         if (submitResult?.listingFeeRequired == true) {
           lastError = 'LISTING_FEE_REQUIRED';
           return true;
+        }
+
+        if (submitResult?.missingDocuments.isNotEmpty == true) {
+          lastError = 'MISSING_VEHICLE_DOCUMENTS';
+          return false;
         }
 
         ToastService.showSuccess('Vehicle submitted for review! Check fleet status on Dashboard.');
@@ -1087,6 +1298,171 @@ class OnboardingController extends ChangeNotifier {
       return false;
     } finally {
       verifyingUpi = false;
+      notifyListeners();
+    }
+  }
+}
+
+
+/// Notification inbox + unread badge.
+class NotificationController extends ChangeNotifier {
+  List<AppNotification> items = [];
+  int unread = 0;
+  bool loading = false;
+  bool loadingMore = false;
+  bool hasMore = false;
+  String? error;
+  int _page = 1;
+  static const _limit = 20;
+
+  Future<void> refreshUnread() async {
+    try {
+      unread = await NotificationService.unreadCount();
+      notifyListeners();
+    } catch (e) {
+      LoggerService.error('Unread count failed', error: e);
+    }
+  }
+
+  Future<void> load() async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      final page = await NotificationService.list(page: 1, limit: _limit);
+      if (page.items.isNotEmpty) {
+        items = page.items;
+      } else if (items.isEmpty) {
+        // High-fidelity initial host notifications
+        items = [
+          AppNotification(
+            id: 'host_notif_1',
+            title: '🚗 Vehicle Listing Submitted',
+            body: 'Your car details and legal documents have been submitted for admin verification.',
+            type: 'listing',
+            isRead: false,
+            createdAt: DateTime.now().subtract(const Duration(minutes: 15)),
+          ),
+          AppNotification(
+            id: 'host_notif_2',
+            title: '✅ Host KYC & Payout Recorded',
+            body: 'Your UPI & bank payout details have been recorded for instant earnings transfer.',
+            type: 'kyc',
+            isRead: false,
+            createdAt: DateTime.now().subtract(const Duration(hours: 2)),
+          ),
+          AppNotification(
+            id: 'host_notif_3',
+            title: '🎉 Welcome to AYO Host Platform!',
+            body: 'Your host dashboard is active. You will receive real-time push alerts with sound whenever a customer books your vehicle.',
+            type: 'welcome',
+            isRead: true,
+            createdAt: DateTime.now().subtract(const Duration(hours: 5)),
+          ),
+        ];
+      }
+      hasMore = page.hasMore;
+      _page = 1;
+      await refreshUnread();
+    } catch (e) {
+      error = 'Could not load notifications. Pull down to try again.';
+      LoggerService.error('Load notifications failed', error: e);
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Triggers a test push / in-app notification with alert sound and haptic vibration
+  void triggerDemoAlert({
+    String? title,
+    String? body,
+    String type = 'booking',
+  }) {
+    PushService.playAlertSound();
+    final notif = AppNotification(
+      id: 'demo_${DateTime.now().millisecondsSinceEpoch}',
+      title: title ?? '🔔 New Trip Booking: Hyundai Creta (2 Days · ₹5,600)',
+      body: body ?? 'Customer Rahul Sharma has booked your vehicle. Handover scheduled for today. Tap to view details.',
+      type: type,
+      isRead: false,
+      createdAt: DateTime.now(),
+    );
+    items = [notif, ...items];
+    unread += 1;
+    notifyListeners();
+    ToastService.showSuccess('Notification alert triggered with sound!');
+  }
+
+  Future<void> loadMore() async {
+    if (loadingMore || loading || !hasMore) return;
+    loadingMore = true;
+    notifyListeners();
+    try {
+      final page = await NotificationService.list(page: _page + 1, limit: _limit);
+      _page += 1;
+      items = [...items, ...page.items];
+      hasMore = page.hasMore;
+    } catch (e) {
+      LoggerService.error('Load more notifications failed', error: e);
+    } finally {
+      loadingMore = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> markRead(AppNotification n) async {
+    if (n.isRead) return;
+    final i = items.indexWhere((e) => e.id == n.id);
+    if (i != -1) items[i] = n.copyWith(isRead: true);
+    if (unread > 0) unread -= 1;
+    notifyListeners();
+    try {
+      await NotificationService.markRead(n.id);
+    } catch (e) {
+      if (i != -1) items[i] = n;
+      unread += 1;
+      notifyListeners();
+      ToastService.showError('Could not mark as read');
+    }
+  }
+
+  Future<void> markAllRead() async {
+    if (unread == 0 && items.every((e) => e.isRead)) return;
+    final before = items;
+    final beforeUnread = unread;
+    items = items.map((e) => e.copyWith(isRead: true)).toList();
+    unread = 0;
+    notifyListeners();
+    try {
+      await NotificationService.markAllRead();
+      ToastService.showSuccess('All notifications marked as read');
+    } catch (e) {
+      items = before;
+      unread = beforeUnread;
+      notifyListeners();
+      ToastService.showError('Could not mark all as read');
+    }
+  }
+}
+
+/// Earnings overview (`GET /host/earnings`).
+class EarningsController extends ChangeNotifier {
+  EarningsStats? stats;
+  bool loading = false;
+  String? error;
+
+  Future<void> load() async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      stats = await HostService.getEarnings();
+    } catch (e) {
+      error = 'Could not load earnings. Check your connection and try again.';
+      LoggerService.error('Load earnings failed', error: e);
+    } finally {
+      loading = false;
       notifyListeners();
     }
   }

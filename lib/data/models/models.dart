@@ -18,6 +18,9 @@ class HostProfile {
   final double? responseRate;
   final String? memberSince;
   final String? drivingLicenceNumber;
+  final String? drivingLicenceFrontUrl;
+  final String? drivingLicenceBackUrl;
+  final String? selfieUrl;
 
   const HostProfile({
     required this.id,
@@ -39,7 +42,15 @@ class HostProfile {
     this.responseRate,
     this.memberSince,
     this.drivingLicenceNumber,
+    this.drivingLicenceFrontUrl,
+    this.drivingLicenceBackUrl,
+    this.selfieUrl,
   });
+
+  bool get hasAllIdentityDocs =>
+      (drivingLicenceFrontUrl?.isNotEmpty ?? false) &&
+      (drivingLicenceBackUrl?.isNotEmpty ?? false) &&
+      (selfieUrl?.isNotEmpty ?? false);
 
   String get fullName => '$firstName $lastName'.trim();
   String get initials =>
@@ -58,7 +69,22 @@ class HostProfile {
         isCompleted: false,
       );
     }
-    var avatar = (json['avatar_url'] ?? json['photoUrl'] ?? json['avatar'])?.toString().trim();
+
+    final userObj = json['user'] is Map<String, dynamic> ? json['user'] as Map<String, dynamic> : null;
+
+    var firstName = (json['first_name'] ?? json['firstName'] ?? userObj?['first_name'] ?? userObj?['firstName'])?.toString() ?? '';
+    var lastName = (json['last_name'] ?? json['lastName'] ?? userObj?['last_name'] ?? userObj?['lastName'])?.toString() ?? '';
+
+    if (firstName.isEmpty && lastName.isEmpty) {
+      final nameStr = (json['name'] ?? json['fullName'] ?? userObj?['name'])?.toString() ?? '';
+      if (nameStr.isNotEmpty) {
+        final parts = nameStr.trim().split(' ');
+        firstName = parts.first;
+        lastName = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+      }
+    }
+
+    var avatar = (json['avatar_url'] ?? json['photoUrl'] ?? json['avatar'] ?? userObj?['avatar_url'])?.toString().trim();
     if (avatar != null && (avatar.contains('default_avatar.jpg') || avatar.isEmpty)) {
       avatar = null;
     } else if (avatar != null && !avatar.startsWith('http://') && !avatar.startsWith('https://')) {
@@ -66,19 +92,20 @@ class HostProfile {
       avatar = 'https://storage.googleapis.com/ayo-rentals/$clean';
     }
 
-    var photo = (json['photoUrl'] ?? json['avatar_url'] ?? json['photo'])?.toString().trim();
+    var photo = (json['photoUrl'] ?? json['avatar_url'] ?? json['photo'] ?? userObj?['avatar_url'])?.toString().trim();
     if (photo != null && (photo.contains('default_avatar.jpg') || photo.isEmpty)) {
       photo = null;
     } else if (photo != null && !photo.startsWith('http://') && !photo.startsWith('https://')) {
       final clean = photo.replaceAll(RegExp(r'^/+'), '');
       photo = 'https://storage.googleapis.com/ayo-rentals/$clean';
     }
+
     return HostProfile(
       id: json['id']?.toString() ?? '',
-      firstName: json['first_name']?.toString() ?? json['firstName']?.toString() ?? '',
-      lastName: json['last_name']?.toString() ?? json['lastName']?.toString() ?? '',
-      email: json['email']?.toString(),
-      phone: json['phone']?.toString(),
+      firstName: firstName,
+      lastName: lastName,
+      email: json['email']?.toString() ?? userObj?['email']?.toString(),
+      phone: json['phone']?.toString() ?? userObj?['phone']?.toString(),
       dob: json['dob']?.toString(),
       city: json['city']?.toString() ?? '',
       bio: json['bio']?.toString() ?? '',
@@ -95,14 +122,39 @@ class HostProfile {
       drivingLicenceNumber: json['driving_licence_number']?.toString() ??
           json['driving_licence']?.toString() ??
           json['dl_number']?.toString(),
+      drivingLicenceFrontUrl: _nonEmpty(json['driving_licence_front_url'] ?? json['driving_license_front_url']),
+      drivingLicenceBackUrl: _nonEmpty(json['driving_licence_back_url'] ?? json['driving_license_back_url']),
+      selfieUrl: _nonEmpty(json['selfie_url']),
     );
   }
+}
+
+class VehiclePhotosCache {
+  static final Map<String, List<String>> _cache = {};
+
+  static void set(String vehicleId, List<String> photos) {
+    if (vehicleId.trim().isEmpty || photos.isEmpty) return;
+    final valid = photos.where((p) => p.trim().isNotEmpty).toList();
+    if (valid.isNotEmpty) {
+      _cache[vehicleId.trim()] = valid;
+    }
+  }
+
+  static List<String> get(String vehicleId) {
+    return _cache[vehicleId.trim()] ?? const [];
+  }
+}
+
+String? _nonEmpty(dynamic v) {
+  final s = v?.toString().trim();
+  return (s == null || s.isEmpty) ? null : s;
 }
 
 class Vehicle {
   final String id;
   final String make;
   final String model;
+  final String? rawName;
   final int year;
   final String plate;
   final String state;
@@ -113,13 +165,20 @@ class Vehicle {
   final String? imageUrl;
   final List<String> photos;
   final double dailyRate; // in Rupees
+  final double hourlyRate; // in Rupees
   final String? address;
   final String? description;
+  // IoT / device status (from GET /vehicles/host/my-cars)
+  final bool? isLocked;
+  final bool? isOnline;
+  final double? lat;
+  final double? lng;
 
   const Vehicle({
     required this.id,
     required this.make,
     required this.model,
+    this.rawName,
     required this.year,
     required this.plate,
     required this.state,
@@ -128,19 +187,53 @@ class Vehicle {
     required this.batteryPercent,
     required this.status,
     required this.dailyRate,
+    this.hourlyRate = 0,
     this.imageUrl,
     this.photos = const [],
     this.address,
     this.description,
+    this.isLocked,
+    this.isOnline,
+    this.lat,
+    this.lng,
   });
 
-  String get name => '$make $model'.trim();
-  bool get isOnTrip => status == 'On Trip' || status == 'ACTIVE';
+  bool get isPaused => status.toUpperCase() == 'PAUSED';
+  bool get canControl => status.toUpperCase() == 'ACTIVE' || status.toUpperCase() == 'PAUSED';
+
+  String get name {
+    final combined = '$make $model'.trim();
+    if (combined.isNotEmpty) return combined;
+    if (rawName != null && rawName!.trim().isNotEmpty) return rawName!.trim();
+    return 'Vehicle Listed';
+  }
+
+  bool get isOnTrip => status == 'On Trip' || status.toUpperCase() == 'ACTIVE' || status.toUpperCase() == 'ON_TRIP';
+
+  double get effectiveHourlyRate {
+    if (hourlyRate > 0) return hourlyRate;
+    if (dailyRate > 0) return (dailyRate / 10).roundToDouble();
+    return 0;
+  }
+
+  String get displayPrice {
+    final h = effectiveHourlyRate;
+    if (dailyRate > 0 && h > 0) {
+      return '₹${dailyRate.toInt()}/day · ₹${h.toInt()}/hr';
+    } else if (dailyRate > 0) {
+      return '₹${dailyRate.toInt()}/day';
+    } else if (h > 0) {
+      return '₹${h.toInt()}/hr';
+    }
+    return 'Rate Pending';
+  }
 
   factory Vehicle.fromJson(Map<String, dynamic> json) {
-    // If daily_rate is in paise (e.g. 1500000 = ₹15,000), convert to Rupees
+    // Check daily_rate_inr / hourly_rate_inr first (standard INR), else daily_rate / hourly_rate (paise or INR)
     double rate = 0;
-    if (json['daily_rate'] != null) {
+    if (json['daily_rate_inr'] != null && json['daily_rate_inr'] is num) {
+      rate = (json['daily_rate_inr'] as num).toDouble();
+    } else if (json['daily_rate'] != null) {
       final rawRate = json['daily_rate'];
       if (rawRate is num) {
         rate = rawRate > 10000 ? (rawRate / 100.0) : rawRate.toDouble();
@@ -149,24 +242,83 @@ class Vehicle {
       rate = (json['dailyRate'] as num).toDouble();
     }
 
-    List<String> photoList = [];
+    double hRate = 0;
+    if (json['hourly_rate_inr'] != null && json['hourly_rate_inr'] is num) {
+      hRate = (json['hourly_rate_inr'] as num).toDouble();
+    } else if (json['hourly_rate'] != null) {
+      final rawHRate = json['hourly_rate'];
+      if (rawHRate is num) {
+        hRate = rawHRate > 1000 ? (rawHRate / 100.0) : rawHRate.toDouble();
+      }
+    } else if (json['hourlyRate'] != null) {
+      hRate = (json['hourlyRate'] as num).toDouble();
+    }
+    if (hRate <= 0 && rate > 0) {
+      hRate = (rate / 10).roundToDouble();
+    }
+
+    final String vId = json['id']?.toString() ?? '';
+    final List<String> photoList = [];
+
+    void addValidPhoto(dynamic p) {
+      if (p == null) return;
+      if (p is String) {
+        final clean = p.trim();
+        if (clean.isNotEmpty) {
+          final url = clean.startsWith('http')
+              ? clean
+              : 'https://storage.googleapis.com/ayo-rentals/${clean.replaceAll(RegExp(r"^/+"), "")}';
+          if (!photoList.contains(url)) photoList.add(url);
+        }
+      } else if (p is Map) {
+        final raw = (p['url'] ?? p['photo_url'] ?? p['photo_ref'] ?? p['key'] ?? '')?.toString().trim();
+        if (raw != null && raw.isNotEmpty) {
+          final url = raw.startsWith('http')
+              ? raw
+              : 'https://storage.googleapis.com/ayo-rentals/${raw.replaceAll(RegExp(r"^/+"), "")}';
+          if (!photoList.contains(url)) photoList.add(url);
+        }
+      }
+    }
+
+    // 1) From photos array
     if (json['photos'] is List) {
       for (final p in (json['photos'] as List)) {
-        if (p is String) {
-          final clean = p.trim();
-          if (clean.isNotEmpty) {
-            photoList.add(clean.startsWith('http')
-                ? clean
-                : 'https://storage.googleapis.com/ayo-rentals/${clean.replaceAll(RegExp(r"^/+"), "")}');
-          }
-        } else if (p is Map) {
-          final raw = (p['url'] ?? p['photo_url'] ?? p['photo_ref'] ?? p['key'] ?? '')?.toString().trim();
-          if (raw != null && raw.isNotEmpty) {
-            photoList.add(raw.startsWith('http')
-                ? raw
-                : 'https://storage.googleapis.com/ayo-rentals/${raw.replaceAll(RegExp(r"^/+"), "")}');
-          }
+        addValidPhoto(p);
+      }
+    }
+
+    // 2) From photo_categories map
+    if (json['photo_categories'] is Map) {
+      final cats = json['photo_categories'] as Map;
+      addValidPhoto(cats['cover']);
+      addValidPhoto(cats['interior']);
+      addValidPhoto(cats['rear_trunk']);
+      if (cats['other'] is List) {
+        for (final o in (cats['other'] as List)) {
+          addValidPhoto(o);
         }
+      }
+    }
+
+    // 3) From photos_meta list
+    if (json['photos_meta'] is List) {
+      for (final m in (json['photos_meta'] as List)) {
+        addValidPhoto(m);
+      }
+    }
+
+    // 4) From media_items list
+    if (json['media_items'] is List) {
+      for (final m in (json['media_items'] as List)) {
+        addValidPhoto(m);
+      }
+    }
+
+    // 5) From local photo cache (photos uploaded during listing)
+    if (vId.isNotEmpty) {
+      for (final cached in VehiclePhotosCache.get(vId)) {
+        addValidPhoto(cached);
       }
     }
 
@@ -174,26 +326,55 @@ class Vehicle {
     if (img != null && img.isNotEmpty && !img.startsWith('http://') && !img.startsWith('https://')) {
       img = 'https://storage.googleapis.com/ayo-rentals/${img.replaceAll(RegExp(r"^/+"), "")}';
     }
+    if (img != null && img.isNotEmpty) {
+      addValidPhoto(img);
+    }
     if ((img == null || img.isEmpty) && photoList.isNotEmpty) {
       img = photoList.first;
     }
 
+    final dev = json['device_status'] is Map ? json['device_status'] as Map : const {};
+    final loc = json['location'] is Map ? json['location'] as Map : const {};
+    double? numOrNull(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '');
+
+    String make = (json['make'] ?? '')?.toString().trim() ?? '';
+    String model = (json['model'] ?? '')?.toString().trim() ?? '';
+    final String rName = (json['name'] ?? json['title'] ?? '')?.toString().trim() ?? '';
+    if (make.isEmpty && model.isEmpty && rName.isNotEmpty) {
+      final parts = rName.split(' ');
+      make = parts.first;
+      model = parts.length > 1 ? parts.sublist(1).join(' ') : '';
+    }
+
+    final String statusStr = (json['status'] ?? 'DRAFT')?.toString().toUpperCase() ?? 'DRAFT';
+    final String plateStr = (json['registration_number'] ?? json['plate'] ?? json['reg_number'] ?? '')?.toString().trim() ?? '';
+    final String bodyTypeStr = (json['body_type'] ?? json['bodyType'] ?? json['type'] ?? 'Sedan')?.toString().trim() ?? 'Sedan';
+    final int yearInt = json['year'] is num
+        ? (json['year'] as num).toInt()
+        : (int.tryParse(json['year']?.toString() ?? '') ?? 2024);
+
     return Vehicle(
       id: json['id'] ?? '',
-      make: json['make'] ?? '',
-      model: json['model'] ?? '',
-      year: json['year'] ?? 2024,
-      plate: json['registration_number'] ?? json['plate'] ?? '',
+      make: make,
+      model: model,
+      rawName: rName,
+      year: yearInt,
+      plate: plateStr,
       state: json['state'] ?? '',
       transmission: json['transmission'] ?? 'Automatic',
-      bodyType: json['body_type'] ?? json['bodyType'] ?? 'Car',
-      batteryPercent: json['batteryPercent'] ?? 88,
-      status: json['status'] ?? 'DRAFT',
+      bodyType: bodyTypeStr,
+      batteryPercent: (dev['battery_percentage'] as num?)?.toInt() ?? json['batteryPercent'] ?? 88,
+      status: statusStr,
       dailyRate: rate,
+      hourlyRate: hRate,
       imageUrl: img,
       photos: photoList,
-      address: json['address'],
+      address: json['address'] ?? loc['address'],
       description: json['description'],
+      isLocked: dev['is_locked'] as bool?,
+      isOnline: dev['is_online'] as bool?,
+      lat: numOrNull(json['lat'] ?? loc['lat']),
+      lng: numOrNull(json['lng'] ?? loc['lng']),
     );
   }
 }
@@ -223,20 +404,43 @@ class DashboardStats {
     this.nextHandover,
   });
 
-  factory DashboardStats.fromJson(Map<String, dynamic> json) => DashboardStats(
-        greeting: json['greeting'] ?? 'Hello',
-        hostName: json['hostName'] ?? '',
-        totalRevenue: (json['totalRevenue'] ?? 0).toDouble(),
-        revenueChangePercent: (json['revenueChangePercent'] ?? 0).toDouble(),
-        pendingPayout: (json['pendingPayout'] ?? 0).toDouble(),
-        payoutDate: json['payoutDate'] ?? '',
-        activeRides: json['activeRides'] ?? 0,
-        totalVehicles: json['totalVehicles'] ?? 0,
-        occupancyPercent: (json['occupancyPercent'] ?? 0).toDouble(),
-        nextHandover: json['nextHandover'] != null
-            ? Handover.fromJson(json['nextHandover'])
-            : null,
-      );
+  factory DashboardStats.fromJson(Map<String, dynamic> json) {
+    double parseNum(dynamic v) {
+      if (v is num) {
+        return v > 100000 ? (v / 100.0) : v.toDouble();
+      }
+      return double.tryParse(v?.toString() ?? '') ?? 0.0;
+    }
+
+    int parseInt(dynamic v) {
+      if (v is num) return v.toInt();
+      return int.tryParse(v?.toString() ?? '') ?? 0;
+    }
+
+    final rev = parseNum(json['total_revenue'] ?? json['totalRevenue'] ?? json['total_earnings'] ?? json['earnings'] ?? json['revenue']);
+    final revChange = parseNum(json['revenue_change_percent'] ?? json['revenueChangePercent'] ?? json['growth']);
+    final payout = parseNum(json['pending_payout'] ?? json['pendingPayout'] ?? json['payout']);
+    final active = parseInt(json['active_rides'] ?? json['activeRides'] ?? json['active_trips'] ?? json['active_bookings']);
+    final totalVeh = parseInt(json['total_vehicles'] ?? json['totalVehicles'] ?? json['fleet_count'] ?? json['total_cars']);
+    final occ = parseNum(json['occupancy_percent'] ?? json['occupancyPercent'] ?? json['occupancy_rate'] ?? json['occupancyRate'] ?? json['occupancy']);
+
+    return DashboardStats(
+      greeting: json['greeting']?.toString() ?? 'Hello',
+      hostName: json['host_name']?.toString() ?? json['hostName']?.toString() ?? json['name']?.toString() ?? '',
+      totalRevenue: rev,
+      revenueChangePercent: revChange,
+      pendingPayout: payout,
+      payoutDate: json['payout_date']?.toString() ?? json['payoutDate']?.toString() ?? 'Auto Transfer',
+      activeRides: active,
+      totalVehicles: totalVeh,
+      occupancyPercent: occ,
+      nextHandover: json['next_handover'] != null
+          ? Handover.fromJson(Map<String, dynamic>.from(json['next_handover'] as Map))
+          : (json['nextHandover'] != null
+              ? Handover.fromJson(Map<String, dynamic>.from(json['nextHandover'] as Map))
+              : null),
+    );
+  }
 }
 
 class Handover {
@@ -333,12 +537,13 @@ class ListingFeeInfo {
   double get amountRupees => amountPaise / 100.0;
 
   factory ListingFeeInfo.fromJson(Map<String, dynamic> json) {
+    final paise = json['amount_paise'] is int
+        ? json['amount_paise'] as int
+        : int.tryParse(json['amount_paise']?.toString() ?? '') ?? 0;
     return ListingFeeInfo(
-      amountPaise: json['amount_paise'] is int
-          ? json['amount_paise']
-          : int.tryParse(json['amount_paise']?.toString() ?? '49900') ?? 49900,
+      amountPaise: paise,
       currency: json['currency']?.toString() ?? 'INR',
-      displayAmount: json['display_amount']?.toString() ?? '₹499.00',
+      displayAmount: json['display_amount']?.toString() ?? '₹${(paise / 100).toStringAsFixed(paise % 100 == 0 ? 0 : 2)}',
       bypassEnabled: json['bypass_enabled'] ?? false,
     );
   }
@@ -539,14 +744,16 @@ class SubmitVehicleResult {
   final int amountPaise;
   final String keyId;
   final String message;
+  final List<String> missingDocuments;
 
   const SubmitVehicleResult({
     required this.success,
     this.listingFeeRequired = false,
     this.orderId = '',
-    this.amountPaise = 49900,
+    this.amountPaise = 0,
     this.keyId = '',
     this.message = '',
+    this.missingDocuments = const [],
   });
 }
 
@@ -841,7 +1048,7 @@ class GcsPresignResponse {
       });
     }
     return GcsPresignResponse(
-      key: json['key']?.toString() ?? '',
+      key: json['key']?.toString() ?? json['photo_key']?.toString() ?? json['file_key']?.toString() ?? json['s3_key']?.toString() ?? '',
       uploadUrl: json['upload_url']?.toString() ?? '',
       method: json['method']?.toString() ?? 'PUT',
       headers: headersMap.isNotEmpty ? headersMap : const {'Content-Type': 'image/jpeg'},
@@ -856,3 +1063,239 @@ class GcsPresignResponse {
       : 'https://storage.googleapis.com/ayo-rentals/$key';
 }
 
+
+
+// ─────────────────────────── Listing fee (dynamic, admin controlled) ───────────────────────────
+class ListingFeeConfig {
+  final int feeInr;
+  final int feePaise;
+  final String currency;
+  final bool bypass;
+  final String description;
+
+  const ListingFeeConfig({
+    required this.feeInr,
+    required this.feePaise,
+    this.currency = 'INR',
+    this.bypass = false,
+    this.description = '',
+  });
+
+  String get display => bypass ? 'Waived' : '₹$feeInr';
+
+  factory ListingFeeConfig.fromJson(Map<String, dynamic> json) {
+    int toInt(dynamic v) => v is num ? v.round() : int.tryParse(v?.toString() ?? '') ?? 0;
+    final paise = json['listing_fee_paise'] != null
+        ? toInt(json['listing_fee_paise'])
+        : toInt(json['listing_fee_inr']) * 100;
+    final inr = json['listing_fee_inr'] != null ? toInt(json['listing_fee_inr']) : paise ~/ 100;
+    return ListingFeeConfig(
+      feeInr: inr,
+      feePaise: paise,
+      currency: json['currency']?.toString() ?? 'INR',
+      bypass: json['listing_fee_bypass'] == true,
+      description: json['description']?.toString() ?? '',
+    );
+  }
+}
+
+// ─────────────────────────── Earnings ───────────────────────────
+class EarningsPoint {
+  final String label;
+  final double amount;
+  const EarningsPoint(this.label, this.amount);
+}
+
+class EarningsEntry {
+  final String title;
+  final String subtitle;
+  final double amount;
+  final String status;
+  const EarningsEntry({
+    required this.title,
+    required this.subtitle,
+    required this.amount,
+    required this.status,
+  });
+}
+
+/// Tolerant parser: backend field names for /host/earnings are read from several
+/// likely keys, and any `*_paise` value is converted to rupees.
+class EarningsStats {
+  final double total;
+  final double thisMonth;
+  final double lastMonth;
+  final double pendingPayout;
+  final double paidOut;
+  final int completedTrips;
+  final double changePercent;
+  final List<EarningsPoint> monthly;
+  final List<EarningsEntry> recent;
+
+  const EarningsStats({
+    this.total = 0,
+    this.thisMonth = 0,
+    this.lastMonth = 0,
+    this.pendingPayout = 0,
+    this.paidOut = 0,
+    this.completedTrips = 0,
+    this.changePercent = 0,
+    this.monthly = const [],
+    this.recent = const [],
+  });
+
+  bool get isEmpty =>
+      total == 0 && thisMonth == 0 && pendingPayout == 0 && paidOut == 0 && recent.isEmpty;
+
+  static double _money(Map<String, dynamic> j, List<String> keys) {
+    for (final k in keys) {
+      final paise = j['${k}_paise'];
+      if (paise is num) return paise / 100.0;
+      if (paise != null) {
+        final p = double.tryParse(paise.toString());
+        if (p != null) return p / 100.0;
+      }
+      final v = j[k];
+      if (v is num) return v.toDouble();
+      if (v != null) {
+        final d = double.tryParse(v.toString());
+        if (d != null) return d;
+      }
+    }
+    return 0;
+  }
+
+  factory EarningsStats.fromJson(Map<String, dynamic> j) {
+    Map<String, dynamic> src = j;
+    for (final k in ['summary', 'stats', 'earnings']) {
+      if (j[k] is Map<String, dynamic> && j[k]['total'] == null && j['total_earnings'] == null) {
+        src = {...j, ...(j[k] as Map<String, dynamic>)};
+        break;
+      }
+    }
+
+    final monthlyRaw = src['monthly'] ?? src['monthly_earnings'] ?? src['chart'] ?? src['series'];
+    final monthly = <EarningsPoint>[];
+    if (monthlyRaw is List) {
+      for (final e in monthlyRaw) {
+        if (e is Map) {
+          final m = Map<String, dynamic>.from(e);
+          monthly.add(EarningsPoint(
+            (m['label'] ?? m['month'] ?? m['period'] ?? '').toString(),
+            _money(m, ['amount', 'earnings', 'total', 'value']),
+          ));
+        }
+      }
+    }
+
+    final recentRaw = src['recent'] ?? src['transactions'] ?? src['payouts'] ?? src['history'] ?? src['items'];
+    final recent = <EarningsEntry>[];
+    if (recentRaw is List) {
+      for (final e in recentRaw) {
+        if (e is Map) {
+          final m = Map<String, dynamic>.from(e);
+          recent.add(EarningsEntry(
+            title: (m['title'] ?? m['vehicle'] ?? m['description'] ?? m['type'] ?? 'Trip earning').toString(),
+            subtitle: (m['date'] ?? m['created_at'] ?? m['paid_at'] ?? m['booking_id'] ?? '').toString(),
+            amount: _money(m, ['amount', 'net', 'earnings', 'payout']),
+            status: (m['status'] ?? '').toString(),
+          ));
+        }
+      }
+    }
+
+    final trips = src['completed_trips'] ?? src['total_trips'] ?? src['trips'] ?? src['trips_completed'];
+    return EarningsStats(
+      total: _money(src, ['total_earnings', 'total_revenue', 'totalRevenue', 'total', 'lifetime']),
+      thisMonth: _money(src, ['this_month', 'month_earnings', 'current_month', 'month']),
+      lastMonth: _money(src, ['last_month', 'previous_month']),
+      pendingPayout: _money(src, ['pending_payout', 'pendingPayout', 'pending', 'upcoming_payout']),
+      paidOut: _money(src, ['paid_out', 'total_paid', 'paid', 'settled']),
+      completedTrips: trips is num ? trips.toInt() : int.tryParse(trips?.toString() ?? '') ?? 0,
+      changePercent: _money(src, ['change_percent', 'revenue_change_percent', 'growth']),
+      monthly: monthly,
+      recent: recent,
+    );
+  }
+}
+
+// ─────────────────────────── Notifications ───────────────────────────
+class AppNotification {
+  final String id;
+  final String title;
+  final String body;
+  final String type;
+  final bool isRead;
+  final DateTime? createdAt;
+
+  const AppNotification({
+    required this.id,
+    required this.title,
+    required this.body,
+    this.type = '',
+    this.isRead = false,
+    this.createdAt,
+  });
+
+  AppNotification copyWith({bool? isRead}) => AppNotification(
+        id: id,
+        title: title,
+        body: body,
+        type: type,
+        isRead: isRead ?? this.isRead,
+        createdAt: createdAt,
+      );
+
+  factory AppNotification.fromJson(Map<String, dynamic> j) {
+    final read = j['is_read'] ?? j['isRead'] ?? j['read'];
+    return AppNotification(
+      id: j['id']?.toString() ?? '',
+      title: (j['title'] ?? 'AYO').toString(),
+      body: (j['body'] ?? j['message'] ?? '').toString(),
+      type: (j['type'] ?? j['category'] ?? '').toString(),
+      isRead: read is bool ? read : (j['read_at'] != null),
+      createdAt: DateTime.tryParse((j['created_at'] ?? j['createdAt'] ?? '').toString())?.toLocal(),
+    );
+  }
+}
+
+
+// ─────────────────────────── Vehicle reviews (GET /vehicles/:id/reviews) ───────────────────────────
+class VehicleReview {
+  final String id;
+  final String reviewerName;
+  final int rating;
+  final String comment;
+  final DateTime? createdAt;
+
+  const VehicleReview({
+    required this.id,
+    required this.reviewerName,
+    required this.rating,
+    required this.comment,
+    this.createdAt,
+  });
+
+  factory VehicleReview.fromJson(Map<String, dynamic> j) => VehicleReview(
+        id: j['id']?.toString() ?? '',
+        reviewerName: j['reviewer_name']?.toString() ?? 'Guest',
+        rating: (j['rating'] as num?)?.toInt() ?? 0,
+        comment: j['comment']?.toString() ?? '',
+        createdAt: DateTime.tryParse(j['created_at']?.toString() ?? ''),
+      );
+}
+
+class VehicleReviewsPage {
+  final int total;
+  final double ratingAvg;
+  final List<VehicleReview> items;
+  const VehicleReviewsPage({required this.total, required this.ratingAvg, required this.items});
+
+  factory VehicleReviewsPage.fromJson(Map<String, dynamic> j) => VehicleReviewsPage(
+        total: (j['total'] as num?)?.toInt() ?? 0,
+        ratingAvg: (j['rating_avg'] as num?)?.toDouble() ?? 0,
+        items: ((j['items'] as List?) ?? const [])
+            .map((e) => VehicleReview.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
+}

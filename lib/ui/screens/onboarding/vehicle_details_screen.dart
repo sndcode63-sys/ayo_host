@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/services/toast_service.dart';
@@ -9,6 +10,7 @@ import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
 import '../../widgets/chrome.dart';
 import '../../widgets/inputs.dart';
+import '../../widgets/listing_fee_banner.dart';
 import '../dashboard/main_shell.dart';
 import 'vehicle_photos_screen.dart';
 
@@ -30,11 +32,16 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
   late final TextEditingController _plateController;
   late final TextEditingController _addressController;
   late final TextEditingController _pincodeController;
+  late final TextEditingController _weekendController;
+  late final TextEditingController _mileageController;
 
   @override
   void initState() {
     super.initState();
     final ob = context.read<OnboardingController>();
+    if (ob.submitResult != null) {
+      ob.resetVehicleDraft();
+    }
     _makeController = TextEditingController(text: ob.make);
     _modelController = TextEditingController(text: ob.model);
     _yearController = TextEditingController(text: ob.year);
@@ -42,6 +49,36 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
     _plateController = TextEditingController(text: ob.plate);
     _addressController = TextEditingController(text: ob.pickupAddress);
     _pincodeController = TextEditingController(text: ob.pincode);
+    _weekendController = TextEditingController(text: ob.weekendRate > 0 ? ob.weekendRate.toInt().toString() : '');
+    _mileageController = TextEditingController(text: ob.mileage);
+
+    // Auto-fetch pickup location as soon as the screen opens (only if nothing typed yet).
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final c = context.read<OnboardingController>();
+      if (c.pickupAddress.trim().isEmpty && c.pincode.trim().isEmpty) {
+        final ok = await c.autoFetchCurrentLocation(silent: true);
+        if (ok && mounted) _syncLocationFields();
+      }
+    });
+  }
+
+  void _syncLocationFields() {
+    final c = context.read<OnboardingController>();
+    _addressController.text = c.pickupAddress;
+    _pincodeController.text = c.pincode;
+  }
+
+  Future<void> _fetchFromPincode(String pin) async {
+    final c = context.read<OnboardingController>();
+    final ok = await c.fetchAddressFromPincode(pin);
+    if (ok && mounted) _syncLocationFields();
+  }
+
+  Future<void> _useCurrentLocation() async {
+    final c = context.read<OnboardingController>();
+    final ok = await c.autoFetchCurrentLocation();
+    if (ok && mounted) _syncLocationFields();
   }
 
   @override
@@ -53,6 +90,8 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
     _plateController.dispose();
     _addressController.dispose();
     _pincodeController.dispose();
+    _weekendController.dispose();
+    _mileageController.dispose();
     super.dispose();
   }
 
@@ -71,12 +110,9 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
               style: TextStyle(fontSize: 12),
             ),
             const SizedBox(height: 10),
-            TextField(
+            AppTextField(
+              hint: 'e.g. Convertible / Vintage',
               controller: customClassController,
-              decoration: const InputDecoration(
-                hintText: 'e.g. Convertible / Vintage',
-                border: OutlineInputBorder(),
-              ),
             ),
           ],
         ),
@@ -132,6 +168,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
               style: AppText.body,
             ),
             const SizedBox(height: 16),
+            const ListingFeeBanner(),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -220,11 +257,59 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
             Row(
               children: [
                 Expanded(
+                  child: AppDropdownField(
+                    label: 'Seats',
+                    value: ob.seatingCapacity.toString(),
+                    hint: '5',
+                    items: const ['2', '4', '5', '6', '7', '8'],
+                    onChanged: (v) => ob.seatingCapacity = int.tryParse(v ?? '') ?? 5,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: AppDropdownField(
+                    label: 'Fuel Type',
+                    value: ob.fuelType,
+                    hint: 'Petrol',
+                    items: const ['Petrol', 'Diesel', 'CNG', 'Electric', 'Hybrid'],
+                    onChanged: (v) => ob.fuelType = v ?? 'Petrol',
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: AppDropdownField(
+                    label: 'Drivetrain',
+                    value: ob.drivetrain,
+                    hint: '2WD',
+                    items: const ['2WD', '4WD', 'AWD', 'FWD', 'RWD'],
+                    onChanged: (v) => ob.drivetrain = v ?? '2WD',
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: AppTextField(
+                    label: 'Mileage',
+                    hint: 'e.g. 16 kmpl',
+                    controller: _mileageController,
+                    onChanged: (v) => ob.mileage = v,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
                   flex: 2,
                   child: AppTextField(
                     label: 'License Registration Plate',
                     hint: 'e.g. KA 01 AB 1234',
                     controller: _plateController,
+                    textCapitalization: TextCapitalization.characters,
                     onChanged: (v) => ob.plate = v,
                   ),
                 ),
@@ -242,68 +327,69 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
               ],
             ),
             const SizedBox(height: 18),
-            Text('PICKUP LOCATION & PINCODE', style: AppText.fieldLabel),
-            const SizedBox(height: 6),
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Expanded(
-                  child: TextField(
-                    controller: _pincodeController,
-                    keyboardType: TextInputType.number,
-                    maxLength: 6,
-                    decoration: const InputDecoration(
-                      hintText: 'e.g. 560038',
-                      counterText: '',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    ),
-                    onChanged: (v) => ob.pincode = v,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  height: 48,
-                  child: ElevatedButton.icon(
-                    onPressed: ob.pincodeLoading
-                        ? null
-                        : () async {
-                            final success = await ob.fetchAddressFromPincode(
-                              _pincodeController.text,
-                            );
-                            if (success) {
-                              _addressController.text = ob.pickupAddress;
-                            }
-                          },
-                    icon: ob.pincodeLoading
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.my_location_rounded, size: 16),
-                    label: const Text('Fetch Location'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                Text('PICKUP LOCATION', style: AppText.fieldLabel),
+                GestureDetector(
+                  onTap: ob.locationLoading ? null : _useCurrentLocation,
+                  child: Row(
+                    children: [
+                      if (ob.locationLoading)
+                        const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      else
+                        const Icon(Icons.my_location_rounded, size: 14, color: AppColors.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        ob.locationLoading ? 'Detecting...' : 'Use current location',
+                        style: AppText.captionCaps.copyWith(
+                          color: AppColors.primary,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
+            AppTextField(
+              label: 'Pincode',
+              hint: 'e.g. 560038',
+              controller: _pincodeController,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              prefix: const Icon(Icons.pin_drop_outlined, size: 17, color: AppColors.primary),
+              suffix: ob.pincodeLoading
+                  ? const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : null,
+              helper: 'Enter 6 digits — address is fetched automatically',
+              onChanged: (v) {
+                ob.pincode = v;
+                if (v.length == 6) _fetchFromPincode(v);
+              },
+            ),
+            const SizedBox(height: 14),
             AppTextField(
               label: 'Pickup Address',
               hint: 'e.g. Flat 101, Indiranagar, Bengaluru, Karnataka',
               controller: _addressController,
-              prefix: const Icon(Icons.location_on_outlined,
-                  size: 17, color: AppColors.primary),
+              maxLines: 3,
+              prefix: const Icon(Icons.location_on_outlined, size: 17, color: AppColors.primary),
+              helper: 'Auto-detected from your location · you can edit it manually',
               onChanged: (v) => ob.pickupAddress = v,
             ),
             const SizedBox(height: 18),
@@ -329,6 +415,20 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                             .copyWith(fontSize: 11, color: AppColors.textMuted)),
                     onChanged: (v) =>
                         ob.dailyRate = double.tryParse(v) ?? 0,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: AppTextField(
+                    label: 'Weekend Rate (optional)',
+                    hint: 'Auto: +20%',
+                    controller: _weekendController,
+                    keyboardType: TextInputType.number,
+                    prefix: const Padding(
+                      padding: EdgeInsets.only(left: 12, right: 4),
+                      child: Text('₹', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    ),
+                    onChanged: (v) => ob.weekendRate = double.tryParse(v) ?? 0,
                   ),
                 ),
               ],
@@ -465,6 +565,8 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 ob.pickupAddress = _addressController.text.trim();
                 ob.pincode = _pincodeController.text.trim();
                 ob.dailyRate = double.tryParse(_rateController.text.trim()) ?? 0;
+                ob.weekendRate = double.tryParse(_weekendController.text.trim()) ?? 0;
+                ob.mileage = _mileageController.text.trim();
 
                 if (ob.make.isEmpty || ob.model.isEmpty) {
                   ToastService.showWarning('Please enter Make and Model of your vehicle');
@@ -478,6 +580,10 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 }
                 if (ob.plate.isEmpty) {
                   ToastService.showWarning('Please enter vehicle Registration Plate number (e.g. 05 KL 8821)');
+                  return;
+                }
+                if (ob.pincode.length != 6) {
+                  ToastService.showWarning('Please enter a valid 6-digit pincode');
                   return;
                 }
                 if (ob.pickupAddress.isEmpty) {

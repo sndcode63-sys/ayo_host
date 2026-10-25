@@ -168,8 +168,14 @@ class _LoggingInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     final errCode = err.response?.data?['error']?['code']?.toString() ?? '';
+    final path = err.requestOptions.path;
     if (err.response?.statusCode == 402 || errCode == 'LISTING_FEE_REQUIRED') {
       LoggerService.info('API Gate Notice (402): Listing fee required for ${err.requestOptions.uri}');
+    } else if (err.response?.statusCode == 404 &&
+        (path.contains('/notifications') ||
+         path.contains('/host/dashboard') ||
+         path.contains('/host/earnings'))) {
+      LoggerService.info('API Notice (404): Optional endpoint not present on server (${err.requestOptions.uri})');
     } else {
       LoggerService.error(
         'API Error: ${err.requestOptions.method} ${err.requestOptions.uri} - Response: ${err.response?.data}',
