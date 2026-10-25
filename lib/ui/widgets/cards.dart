@@ -108,6 +108,9 @@ class StatusPill extends StatelessWidget {
       case 'DRAFT':
         return StatusPill(
             key: key, label: 'Draft', kind: StatusKind.neutral);
+      case 'PAUSED':
+        return StatusPill(
+            key: key, label: 'Paused', kind: StatusKind.neutral);
       default:
         return StatusPill(
             key: key, label: status, kind: StatusKind.neutral);

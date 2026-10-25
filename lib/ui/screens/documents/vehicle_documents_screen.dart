@@ -14,6 +14,7 @@ import '../../../data/services/host_service.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../../widgets/cards.dart';
+import '../../widgets/inputs.dart';
 import '../../widgets/chrome.dart';
 import '../../widgets/app_image_view.dart';
 import '../dashboard/main_shell.dart';
@@ -153,12 +154,9 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
           children: [
             Text('Enter GCS / Document URL for $docType:', style: const TextStyle(fontSize: 12)),
             const SizedBox(height: 10),
-            TextField(
+            AppTextField(
+              hint: 'https://storage.googleapis.com/ayo-rentals/.../doc.pdf',
               controller: urlController,
-              decoration: const InputDecoration(
-                hintText: 'https://storage.googleapis.com/ayo-rentals/.../doc.pdf',
-                border: OutlineInputBorder(),
-              ),
             ),
           ],
         ),

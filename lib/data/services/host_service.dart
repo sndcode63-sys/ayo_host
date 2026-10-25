@@ -111,15 +111,21 @@ class HostService {
       final contentType = _getContentType(imageFile.path);
       LoggerService.info('1. Requesting vehicle photo presign for vehicle: $vehicleId (category: $category)...');
 
-      final presignRes = await ApiClient.instance.post(
-        ApiConfig.vehiclePhotosPresign(vehicleId),
-        data: {
-          'content_type': contentType,
-          'kind': 'PHOTO',
-        },
-      );
+      Map<String, dynamic> presignRes;
+      try {
+        presignRes = await ApiClient.instance.post(
+          ApiConfig.vehicleMediaPresign(vehicleId),
+          data: {'category': category.toUpperCase(), 'content_type': contentType},
+        );
+      } catch (_) {
+        presignRes = await ApiClient.instance.post(
+          ApiConfig.vehiclePhotosPresign(vehicleId),
+          data: {'content_type': contentType, 'kind': 'PHOTO'},
+        );
+      }
 
-      final presign = GcsPresignResponse.fromJson(presignRes['data'] as Map<String, dynamic>);
+      final presign = GcsPresignResponse.fromJson(
+          (presignRes['data'] is Map ? presignRes['data'] : presignRes) as Map<String, dynamic>);
       if (presign.uploadUrl.isEmpty) {
         throw Exception('Vehicle photo presigned URL is empty');
       }
@@ -133,13 +139,24 @@ class HostService {
 
       LoggerService.info('3. Confirming vehicle photo with Ayo Backend ($category)...');
       try {
-        await ApiClient.instance.post(
-          ApiConfig.vehiclePhotosConfirm(vehicleId),
-          data: {
-            'photo_ref': presign.key,
-            'category': category,
-          },
-        );
+        try {
+          await ApiClient.instance.post(
+            ApiConfig.vehiclePhotosBatch(vehicleId),
+            data: {
+              'photos': [
+                {'url': presign.key, 'category': category.toLowerCase()}
+              ],
+            },
+          );
+        } catch (_) {
+          await ApiClient.instance.post(
+            ApiConfig.vehiclePhotosConfirm(vehicleId),
+            data: {
+              'photo_ref': presign.key,
+              'category': category,
+            },
+          );
+        }
       } catch (e) {
         LoggerService.warning('Vehicle photo confirm warning: $e');
       }
@@ -214,6 +231,10 @@ class HostService {
     required String bio,
     required String avatarUrl,
     String? drivingLicenceNumber,
+    String? email,
+    String? drivingLicenceFrontUrl,
+    String? drivingLicenceBackUrl,
+    String? selfieUrl,
   }) async {
     try {
       LoggerService.info('Saving host profile');
@@ -243,11 +264,16 @@ class HostService {
       };
 
       if (drivingLicenceNumber != null && drivingLicenceNumber.trim().isNotEmpty) {
-        final dl = drivingLicenceNumber.trim();
-        payload['driving_licence_number'] = dl;
-        payload['driving_licence'] = dl;
-        payload['dl_number'] = dl;
+        payload['driving_licence_number'] = drivingLicenceNumber.trim();
       }
+      if (email != null && email.trim().isNotEmpty) payload['email'] = email.trim();
+      if (drivingLicenceFrontUrl != null && drivingLicenceFrontUrl.isNotEmpty) {
+        payload['driving_licence_front_url'] = drivingLicenceFrontUrl;
+      }
+      if (drivingLicenceBackUrl != null && drivingLicenceBackUrl.isNotEmpty) {
+        payload['driving_licence_back_url'] = drivingLicenceBackUrl;
+      }
+      if (selfieUrl != null && selfieUrl.isNotEmpty) payload['selfie_url'] = selfieUrl;
 
       final response = await ApiClient.instance.post(
         ApiConfig.hostProfile,
@@ -430,10 +456,45 @@ class HostService {
     }
   }
 
-  static Future<List<Vehicle>> getMyVehicles() async {
+  /// `GET /vehicles/my` (per API guide) with automatic fallback to the legacy
+  /// `/vehicles/mine` route. [status]: all | active | pending_review | draft.
+  static Future<List<Vehicle>> getMyVehicles({String? status}) async {
     try {
-      LoggerService.info('Fetching host vehicles from /vehicles/mine');
-      final response = await ApiClient.instance.get(ApiConfig.vehiclesMine);
+      final query = (status == null || status == 'all') ? null : {'status': status};
+
+      // 1) Guide route: GET /vehicles/host/my-cars -> { primary_car, fleet: [...] }
+      try {
+        final res = await ApiClient.instance.get(ApiConfig.vehiclesHostMyCars);
+        final raw = (res['data'] is Map ? res['data'] : res) as Map;
+        final list = <Map<String, dynamic>>[];
+        if (raw['primary_car'] is Map) list.add(Map<String, dynamic>.from(raw['primary_car'] as Map));
+        if (raw['fleet'] is List) {
+          for (final e in raw['fleet'] as List) {
+            if (e is Map) {
+              final m = Map<String, dynamic>.from(e);
+              if (!list.any((x) => x['id'] == m['id'])) list.add(m);
+            }
+          }
+        }
+        if (list.isNotEmpty || raw.containsKey('total_cars')) {
+          var vehicles = list.map(Vehicle.fromJson).toList();
+          if (query != null) {
+            final want = status!.toUpperCase();
+            vehicles = vehicles.where((v) => v.status == want).toList();
+          }
+          return vehicles;
+        }
+      } catch (e) {
+        LoggerService.info('my-cars route unavailable, falling back: $e');
+      }
+
+      // 2) Legacy routes
+      Map<String, dynamic> response;
+      try {
+        response = await ApiClient.instance.get(ApiConfig.vehiclesMy, queryParameters: query);
+      } catch (_) {
+        response = await ApiClient.instance.get(ApiConfig.vehiclesMine, queryParameters: query);
+      }
 
       final dynamic raw = response['data'];
       List items = [];
@@ -442,10 +503,7 @@ class HostService {
       } else if (raw is List) {
         items = raw;
       }
-
-      return items
-          .map((e) => Vehicle.fromJson(e as Map<String, dynamic>))
-          .toList();
+      return items.map((e) => Vehicle.fromJson(e as Map<String, dynamic>)).toList();
     } catch (e) {
       LoggerService.error('Failed to fetch host vehicles', error: e);
       return [];
@@ -618,7 +676,12 @@ class HostService {
         if (code == 'LISTING_FEE_REQUIRED' || e.response?.statusCode == 402) {
           final payment = err['payment'] as Map<String, dynamic>? ?? {};
           final orderId = payment['order_id']?.toString() ?? '';
-          final amount = payment['amount'] is int ? payment['amount'] as int : 49900;
+          var amount = payment['amount'] is int ? payment['amount'] as int : 0;
+          if (amount == 0) {
+            try {
+              amount = (await getListingFee()).feePaise;
+            } catch (_) {}
+          }
           final keyId = payment['key_id']?.toString() ?? ApiConfig.defaultRazorpayKey;
 
           LoggerService.info('Listing fee required (₹${(amount / 100).toInt()}) with Order ID: $orderId');
@@ -640,28 +703,81 @@ class HostService {
     }
   }
 
+  /// Guide route `POST /trips/:id/verify-handover` (token, odometer, fuel, host location).
+  /// Falls back to legacy `/trips/:id/start-handover` if the new route 404s.
   static Future<Map<String, dynamic>> startHandover({
     required String tripId,
     required String token,
     required double hostLat,
     required double hostLng,
+    int? odometerReading,
+    int? fuelPercent,
   }) async {
+    final body = {
+      'token': token,
+      // ignore: use_null_aware_elements
+      if (odometerReading != null) 'odometer_reading': odometerReading,
+      // ignore: use_null_aware_elements
+      if (fuelPercent != null) 'fuel_percent': fuelPercent,
+      'host_lat': hostLat,
+      'host_lng': hostLng,
+    };
     try {
-      LoggerService.info('Starting handover for trip: $tripId');
-      final response = await ApiClient.instance.post(
-        ApiConfig.tripHandover(tripId),
-        data: {
-          'token': token,
-          'host_lat': hostLat,
-          'host_lng': hostLng,
-        },
-      );
-      ToastService.showSuccess('Handover complete! Trip started.');
-      return response['data'] as Map<String, dynamic>;
+      Map<String, dynamic> response;
+      try {
+        response = await ApiClient.instance.post(ApiConfig.tripVerifyHandover(tripId), data: body);
+      } on ApiException catch (e) {
+        if (e.statusCode != 404) rethrow;
+        response = await ApiClient.instance.post(ApiConfig.tripHandover(tripId), data: body);
+      } on DioException catch (e) {
+        if (e.response?.statusCode != 404) rethrow;
+        response = await ApiClient.instance.post(ApiConfig.tripHandover(tripId), data: body);
+      }
+      ToastService.showSuccess('Handover verified! Trip started.');
+      return (response['data'] is Map ? response['data'] : response) as Map<String, dynamic>;
     } catch (e) {
-      LoggerService.error('Failed to start handover', error: e);
+      LoggerService.error('Failed to verify handover', error: e);
       rethrow;
     }
+  }
+
+  /// `POST /trips/:id/end` — host concludes the trip, triggers deposit refund.
+  static Future<Map<String, dynamic>> endTrip(String tripId) async {
+    final res = await ApiClient.instance.post(ApiConfig.tripEnd(tripId));
+    return (res['data'] is Map ? res['data'] : res) as Map<String, dynamic>;
+  }
+
+  /// `POST /trips/:id/cancel`
+  static Future<Map<String, dynamic>> cancelTrip(String tripId, String reason) async {
+    final res = await ApiClient.instance.post(ApiConfig.tripCancel(tripId), data: {'reason': reason});
+    return (res['data'] is Map ? res['data'] : res) as Map<String, dynamic>;
+  }
+
+  // ─────────── IoT lock / unlock + listing pause ───────────
+  static Future<bool> lockVehicle(String id) async {
+    final res = await ApiClient.instance.post(ApiConfig.vehicleLock(id));
+    return (res['success'] ?? res['data']?['success'] ?? true) == true;
+  }
+
+  static Future<bool> unlockVehicle(String id) async {
+    final res = await ApiClient.instance.post(ApiConfig.vehicleUnlock(id));
+    return (res['success'] ?? res['data']?['success'] ?? true) == true;
+  }
+
+  /// `PATCH /vehicles/:id/toggle-status` -> returns new status (ACTIVE / PAUSED).
+  static Future<String> toggleVehicleStatus(String id) async {
+    final res = await ApiClient.instance.patch(ApiConfig.vehicleToggleStatus(id));
+    final m = (res['data'] is Map ? res['data'] : res) as Map;
+    return m['status']?.toString() ?? '';
+  }
+
+  // ─────────── Reviews ───────────
+  static Future<VehicleReviewsPage> getVehicleReviews(String id, {int page = 1, int limit = 20}) async {
+    final res = await ApiClient.instance.get(
+      ApiConfig.vehicleReviews(id),
+      queryParameters: {'page': page, 'limit': limit},
+    );
+    return VehicleReviewsPage.fromJson((res['data'] is Map ? res['data'] : res) as Map<String, dynamic>);
   }
 
   static Future<SupportConfig> getSupportConfig() async {
@@ -693,5 +809,52 @@ class HostService {
         currency: 'INR',
       );
     }
+  }
+
+  // ─────────── Identity documents (DL front / back / selfie) ───────────
+  static Map<String, dynamic> _unwrap(Map<String, dynamic> res) {
+    final d = res['data'];
+    return d is Map<String, dynamic> ? d : res;
+  }
+
+  /// [documentType]: DL_FRONT | DL_BACK | SELFIE. Returns the storage key that
+  /// goes into `driving_licence_front_url` / `_back_url` / `selfie_url`.
+  static Future<String> uploadHostDocument({
+    required String documentType,
+    required File file,
+  }) async {
+    try {
+      final mime = _getContentType(file.path);
+      final res = await ApiClient.instance.post(
+        ApiConfig.hostDocumentPresign,
+        data: {'document_type': documentType, 'content_type': mime},
+      );
+      final presign = GcsPresignResponse.fromJson(_unwrap(res));
+      if (presign.uploadUrl.isEmpty || presign.key.isEmpty) {
+        throw Exception('Upload URL not received from server');
+      }
+      await uploadBytesToGcs(file: file, uploadUrl: presign.uploadUrl, contentType: mime);
+      return presign.key;
+    } catch (e) {
+      LoggerService.error('Host document upload failed ($documentType)', error: e);
+      rethrow;
+    }
+  }
+
+  // ─────────── Dynamic listing fee ───────────
+  static Future<ListingFeeConfig> getListingFee() async {
+    Map<String, dynamic> res;
+    try {
+      res = await ApiClient.instance.get(ApiConfig.listingFee);
+    } catch (_) {
+      res = await ApiClient.instance.get(ApiConfig.hostListingFee);
+    }
+    return ListingFeeConfig.fromJson(_unwrap(res));
+  }
+
+  // ─────────── Earnings ───────────
+  static Future<EarningsStats> getEarnings() async {
+    final res = await ApiClient.instance.get(ApiConfig.hostEarnings);
+    return EarningsStats.fromJson(_unwrap(res));
   }
 }

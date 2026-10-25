@@ -107,6 +107,10 @@ class HostRepository {
       bio: payload['bio'] ?? '',
       avatarUrl: payload['avatar_url'] ?? payload['avatarUrl'] ?? '',
       drivingLicenceNumber: payload['driving_licence_number'] ?? payload['driving_licence'] ?? payload['dl_number'],
+      email: payload['email'],
+      drivingLicenceFrontUrl: payload['driving_licence_front_url'],
+      drivingLicenceBackUrl: payload['driving_licence_back_url'],
+      selfieUrl: payload['selfie_url'],
     );
   }
 

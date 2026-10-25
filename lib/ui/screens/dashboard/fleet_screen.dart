@@ -10,6 +10,7 @@ import '../../widgets/cards.dart';
 import '../../widgets/app_image_view.dart';
 import '../documents/vehicle_documents_screen.dart';
 import '../onboarding/vehicle_details_screen.dart';
+import '../reviews/vehicle_reviews_screen.dart';
 
 /// Full Fleet Management Screen for AYO Host with real backend data & filtering.
 class FleetScreen extends StatefulWidget {
@@ -425,11 +426,80 @@ class _FleetCard extends StatelessWidget {
                     ),
                   ],
                 ),
+                if (vehicle.canControl) ...[
+                  const SizedBox(height: 10),
+                  _VehicleQuickActions(vehicle: vehicle),
+                ],
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Remote IoT lock/unlock, pause/resume listing and reviews for one vehicle.
+class _VehicleQuickActions extends StatelessWidget {
+  const _VehicleQuickActions({required this.vehicle});
+
+  final Vehicle vehicle;
+
+  @override
+  Widget build(BuildContext context) {
+    final dash = context.watch<DashboardController>();
+    final busy = dash.isBusy(vehicle.id);
+    final locked = vehicle.isLocked == true;
+    final online = vehicle.isOnline != false;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (vehicle.isOnline != null || vehicle.isLocked != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              '${online ? '🟢 Online' : '🔴 Offline'} · ${locked ? '🔒 Locked' : '🔓 Unlocked'} · 🔋 ${vehicle.batteryPercent}%',
+              style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
+            ),
+          ),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: (busy || !online || vehicle.isPaused)
+                    ? null
+                    : () => locked
+                        ? context.read<DashboardController>().unlockVehicle(vehicle.id)
+                        : context.read<DashboardController>().lockVehicle(vehicle.id),
+                icon: Icon(locked ? Icons.lock_open_rounded : Icons.lock_rounded, size: 15),
+                label: Text(locked ? 'Unlock' : 'Lock', style: const TextStyle(fontSize: 11.5)),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: busy ? null : () => context.read<DashboardController>().toggleVehicleStatus(vehicle.id),
+                icon: Icon(vehicle.isPaused ? Icons.play_arrow_rounded : Icons.pause_rounded, size: 15),
+                label: Text(vehicle.isPaused ? 'Resume' : 'Pause', style: const TextStyle(fontSize: 11.5)),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => VehicleReviewsScreen(vehicleId: vehicle.id, vehicleName: vehicle.name),
+                  ),
+                ),
+                icon: const Icon(Icons.star_outline_rounded, size: 15),
+                label: const Text('Reviews', style: TextStyle(fontSize: 11.5)),
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

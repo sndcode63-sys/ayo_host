@@ -18,6 +18,9 @@ class HostProfile {
   final double? responseRate;
   final String? memberSince;
   final String? drivingLicenceNumber;
+  final String? drivingLicenceFrontUrl;
+  final String? drivingLicenceBackUrl;
+  final String? selfieUrl;
 
   const HostProfile({
     required this.id,
@@ -39,7 +42,15 @@ class HostProfile {
     this.responseRate,
     this.memberSince,
     this.drivingLicenceNumber,
+    this.drivingLicenceFrontUrl,
+    this.drivingLicenceBackUrl,
+    this.selfieUrl,
   });
+
+  bool get hasAllIdentityDocs =>
+      (drivingLicenceFrontUrl?.isNotEmpty ?? false) &&
+      (drivingLicenceBackUrl?.isNotEmpty ?? false) &&
+      (selfieUrl?.isNotEmpty ?? false);
 
   String get fullName => '$firstName $lastName'.trim();
   String get initials =>
@@ -95,8 +106,16 @@ class HostProfile {
       drivingLicenceNumber: json['driving_licence_number']?.toString() ??
           json['driving_licence']?.toString() ??
           json['dl_number']?.toString(),
+      drivingLicenceFrontUrl: _nonEmpty(json['driving_licence_front_url'] ?? json['driving_license_front_url']),
+      drivingLicenceBackUrl: _nonEmpty(json['driving_licence_back_url'] ?? json['driving_license_back_url']),
+      selfieUrl: _nonEmpty(json['selfie_url']),
     );
   }
+}
+
+String? _nonEmpty(dynamic v) {
+  final s = v?.toString().trim();
+  return (s == null || s.isEmpty) ? null : s;
 }
 
 class Vehicle {
@@ -115,6 +134,11 @@ class Vehicle {
   final double dailyRate; // in Rupees
   final String? address;
   final String? description;
+  // IoT / device status (from GET /vehicles/host/my-cars)
+  final bool? isLocked;
+  final bool? isOnline;
+  final double? lat;
+  final double? lng;
 
   const Vehicle({
     required this.id,
@@ -132,7 +156,14 @@ class Vehicle {
     this.photos = const [],
     this.address,
     this.description,
+    this.isLocked,
+    this.isOnline,
+    this.lat,
+    this.lng,
   });
+
+  bool get isPaused => status == 'PAUSED';
+  bool get canControl => status == 'ACTIVE' || status == 'PAUSED';
 
   String get name => '$make $model'.trim();
   bool get isOnTrip => status == 'On Trip' || status == 'ACTIVE';
@@ -178,6 +209,10 @@ class Vehicle {
       img = photoList.first;
     }
 
+    final dev = json['device_status'] is Map ? json['device_status'] as Map : const {};
+    final loc = json['location'] is Map ? json['location'] as Map : const {};
+    double? numOrNull(dynamic v) => v is num ? v.toDouble() : double.tryParse(v?.toString() ?? '');
+
     return Vehicle(
       id: json['id'] ?? '',
       make: json['make'] ?? '',
@@ -187,13 +222,17 @@ class Vehicle {
       state: json['state'] ?? '',
       transmission: json['transmission'] ?? 'Automatic',
       bodyType: json['body_type'] ?? json['bodyType'] ?? 'Car',
-      batteryPercent: json['batteryPercent'] ?? 88,
+      batteryPercent: (dev['battery_percentage'] as num?)?.toInt() ?? json['batteryPercent'] ?? 88,
       status: json['status'] ?? 'DRAFT',
       dailyRate: rate,
       imageUrl: img,
       photos: photoList,
-      address: json['address'],
+      address: json['address'] ?? loc['address'],
       description: json['description'],
+      isLocked: dev['is_locked'] as bool?,
+      isOnline: dev['is_online'] as bool?,
+      lat: numOrNull(json['lat'] ?? loc['lat']),
+      lng: numOrNull(json['lng'] ?? loc['lng']),
     );
   }
 }
@@ -333,12 +372,13 @@ class ListingFeeInfo {
   double get amountRupees => amountPaise / 100.0;
 
   factory ListingFeeInfo.fromJson(Map<String, dynamic> json) {
+    final paise = json['amount_paise'] is int
+        ? json['amount_paise'] as int
+        : int.tryParse(json['amount_paise']?.toString() ?? '') ?? 0;
     return ListingFeeInfo(
-      amountPaise: json['amount_paise'] is int
-          ? json['amount_paise']
-          : int.tryParse(json['amount_paise']?.toString() ?? '49900') ?? 49900,
+      amountPaise: paise,
       currency: json['currency']?.toString() ?? 'INR',
-      displayAmount: json['display_amount']?.toString() ?? '₹499.00',
+      displayAmount: json['display_amount']?.toString() ?? '₹${(paise / 100).toStringAsFixed(paise % 100 == 0 ? 0 : 2)}',
       bypassEnabled: json['bypass_enabled'] ?? false,
     );
   }
@@ -544,7 +584,7 @@ class SubmitVehicleResult {
     required this.success,
     this.listingFeeRequired = false,
     this.orderId = '',
-    this.amountPaise = 49900,
+    this.amountPaise = 0,
     this.keyId = '',
     this.message = '',
   });
@@ -841,7 +881,7 @@ class GcsPresignResponse {
       });
     }
     return GcsPresignResponse(
-      key: json['key']?.toString() ?? '',
+      key: json['key']?.toString() ?? json['photo_key']?.toString() ?? json['file_key']?.toString() ?? json['s3_key']?.toString() ?? '',
       uploadUrl: json['upload_url']?.toString() ?? '',
       method: json['method']?.toString() ?? 'PUT',
       headers: headersMap.isNotEmpty ? headersMap : const {'Content-Type': 'image/jpeg'},
@@ -856,3 +896,239 @@ class GcsPresignResponse {
       : 'https://storage.googleapis.com/ayo-rentals/$key';
 }
 
+
+
+// ─────────────────────────── Listing fee (dynamic, admin controlled) ───────────────────────────
+class ListingFeeConfig {
+  final int feeInr;
+  final int feePaise;
+  final String currency;
+  final bool bypass;
+  final String description;
+
+  const ListingFeeConfig({
+    required this.feeInr,
+    required this.feePaise,
+    this.currency = 'INR',
+    this.bypass = false,
+    this.description = '',
+  });
+
+  String get display => bypass ? 'Waived' : '₹$feeInr';
+
+  factory ListingFeeConfig.fromJson(Map<String, dynamic> json) {
+    int toInt(dynamic v) => v is num ? v.round() : int.tryParse(v?.toString() ?? '') ?? 0;
+    final paise = json['listing_fee_paise'] != null
+        ? toInt(json['listing_fee_paise'])
+        : toInt(json['listing_fee_inr']) * 100;
+    final inr = json['listing_fee_inr'] != null ? toInt(json['listing_fee_inr']) : paise ~/ 100;
+    return ListingFeeConfig(
+      feeInr: inr,
+      feePaise: paise,
+      currency: json['currency']?.toString() ?? 'INR',
+      bypass: json['listing_fee_bypass'] == true,
+      description: json['description']?.toString() ?? '',
+    );
+  }
+}
+
+// ─────────────────────────── Earnings ───────────────────────────
+class EarningsPoint {
+  final String label;
+  final double amount;
+  const EarningsPoint(this.label, this.amount);
+}
+
+class EarningsEntry {
+  final String title;
+  final String subtitle;
+  final double amount;
+  final String status;
+  const EarningsEntry({
+    required this.title,
+    required this.subtitle,
+    required this.amount,
+    required this.status,
+  });
+}
+
+/// Tolerant parser: backend field names for /host/earnings are read from several
+/// likely keys, and any `*_paise` value is converted to rupees.
+class EarningsStats {
+  final double total;
+  final double thisMonth;
+  final double lastMonth;
+  final double pendingPayout;
+  final double paidOut;
+  final int completedTrips;
+  final double changePercent;
+  final List<EarningsPoint> monthly;
+  final List<EarningsEntry> recent;
+
+  const EarningsStats({
+    this.total = 0,
+    this.thisMonth = 0,
+    this.lastMonth = 0,
+    this.pendingPayout = 0,
+    this.paidOut = 0,
+    this.completedTrips = 0,
+    this.changePercent = 0,
+    this.monthly = const [],
+    this.recent = const [],
+  });
+
+  bool get isEmpty =>
+      total == 0 && thisMonth == 0 && pendingPayout == 0 && paidOut == 0 && recent.isEmpty;
+
+  static double _money(Map<String, dynamic> j, List<String> keys) {
+    for (final k in keys) {
+      final paise = j['${k}_paise'];
+      if (paise is num) return paise / 100.0;
+      if (paise != null) {
+        final p = double.tryParse(paise.toString());
+        if (p != null) return p / 100.0;
+      }
+      final v = j[k];
+      if (v is num) return v.toDouble();
+      if (v != null) {
+        final d = double.tryParse(v.toString());
+        if (d != null) return d;
+      }
+    }
+    return 0;
+  }
+
+  factory EarningsStats.fromJson(Map<String, dynamic> j) {
+    Map<String, dynamic> src = j;
+    for (final k in ['summary', 'stats', 'earnings']) {
+      if (j[k] is Map<String, dynamic> && j[k]['total'] == null && j['total_earnings'] == null) {
+        src = {...j, ...(j[k] as Map<String, dynamic>)};
+        break;
+      }
+    }
+
+    final monthlyRaw = src['monthly'] ?? src['monthly_earnings'] ?? src['chart'] ?? src['series'];
+    final monthly = <EarningsPoint>[];
+    if (monthlyRaw is List) {
+      for (final e in monthlyRaw) {
+        if (e is Map) {
+          final m = Map<String, dynamic>.from(e);
+          monthly.add(EarningsPoint(
+            (m['label'] ?? m['month'] ?? m['period'] ?? '').toString(),
+            _money(m, ['amount', 'earnings', 'total', 'value']),
+          ));
+        }
+      }
+    }
+
+    final recentRaw = src['recent'] ?? src['transactions'] ?? src['payouts'] ?? src['history'] ?? src['items'];
+    final recent = <EarningsEntry>[];
+    if (recentRaw is List) {
+      for (final e in recentRaw) {
+        if (e is Map) {
+          final m = Map<String, dynamic>.from(e);
+          recent.add(EarningsEntry(
+            title: (m['title'] ?? m['vehicle'] ?? m['description'] ?? m['type'] ?? 'Trip earning').toString(),
+            subtitle: (m['date'] ?? m['created_at'] ?? m['paid_at'] ?? m['booking_id'] ?? '').toString(),
+            amount: _money(m, ['amount', 'net', 'earnings', 'payout']),
+            status: (m['status'] ?? '').toString(),
+          ));
+        }
+      }
+    }
+
+    final trips = src['completed_trips'] ?? src['total_trips'] ?? src['trips'] ?? src['trips_completed'];
+    return EarningsStats(
+      total: _money(src, ['total_earnings', 'total_revenue', 'totalRevenue', 'total', 'lifetime']),
+      thisMonth: _money(src, ['this_month', 'month_earnings', 'current_month', 'month']),
+      lastMonth: _money(src, ['last_month', 'previous_month']),
+      pendingPayout: _money(src, ['pending_payout', 'pendingPayout', 'pending', 'upcoming_payout']),
+      paidOut: _money(src, ['paid_out', 'total_paid', 'paid', 'settled']),
+      completedTrips: trips is num ? trips.toInt() : int.tryParse(trips?.toString() ?? '') ?? 0,
+      changePercent: _money(src, ['change_percent', 'revenue_change_percent', 'growth']),
+      monthly: monthly,
+      recent: recent,
+    );
+  }
+}
+
+// ─────────────────────────── Notifications ───────────────────────────
+class AppNotification {
+  final String id;
+  final String title;
+  final String body;
+  final String type;
+  final bool isRead;
+  final DateTime? createdAt;
+
+  const AppNotification({
+    required this.id,
+    required this.title,
+    required this.body,
+    this.type = '',
+    this.isRead = false,
+    this.createdAt,
+  });
+
+  AppNotification copyWith({bool? isRead}) => AppNotification(
+        id: id,
+        title: title,
+        body: body,
+        type: type,
+        isRead: isRead ?? this.isRead,
+        createdAt: createdAt,
+      );
+
+  factory AppNotification.fromJson(Map<String, dynamic> j) {
+    final read = j['is_read'] ?? j['isRead'] ?? j['read'];
+    return AppNotification(
+      id: j['id']?.toString() ?? '',
+      title: (j['title'] ?? 'AYO').toString(),
+      body: (j['body'] ?? j['message'] ?? '').toString(),
+      type: (j['type'] ?? j['category'] ?? '').toString(),
+      isRead: read is bool ? read : (j['read_at'] != null),
+      createdAt: DateTime.tryParse((j['created_at'] ?? j['createdAt'] ?? '').toString())?.toLocal(),
+    );
+  }
+}
+
+
+// ─────────────────────────── Vehicle reviews (GET /vehicles/:id/reviews) ───────────────────────────
+class VehicleReview {
+  final String id;
+  final String reviewerName;
+  final int rating;
+  final String comment;
+  final DateTime? createdAt;
+
+  const VehicleReview({
+    required this.id,
+    required this.reviewerName,
+    required this.rating,
+    required this.comment,
+    this.createdAt,
+  });
+
+  factory VehicleReview.fromJson(Map<String, dynamic> j) => VehicleReview(
+        id: j['id']?.toString() ?? '',
+        reviewerName: j['reviewer_name']?.toString() ?? 'Guest',
+        rating: (j['rating'] as num?)?.toInt() ?? 0,
+        comment: j['comment']?.toString() ?? '',
+        createdAt: DateTime.tryParse(j['created_at']?.toString() ?? ''),
+      );
+}
+
+class VehicleReviewsPage {
+  final int total;
+  final double ratingAvg;
+  final List<VehicleReview> items;
+  const VehicleReviewsPage({required this.total, required this.ratingAvg, required this.items});
+
+  factory VehicleReviewsPage.fromJson(Map<String, dynamic> j) => VehicleReviewsPage(
+        total: (j['total'] as num?)?.toInt() ?? 0,
+        ratingAvg: (j['rating_avg'] as num?)?.toDouble() ?? 0,
+        items: ((j['items'] as List?) ?? const [])
+            .map((e) => VehicleReview.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
+}

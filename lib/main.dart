@@ -11,7 +11,9 @@ import 'ui/screens/auth/splash_screen.dart';
 import 'ui/screens/dashboard/main_shell.dart';
 import 'ui/screens/documents/vehicle_documents_screen.dart';
 import 'ui/screens/insights/performance_insights_screen.dart';
+import 'ui/screens/earnings/earnings_screen.dart';
 import 'ui/screens/menu/more_menu_screen.dart';
+import 'ui/screens/notifications/notifications_screen.dart';
 import 'ui/screens/onboarding/host_profile_setup_screen.dart';
 import 'ui/screens/onboarding/payout_setup_screen.dart';
 import 'ui/screens/onboarding/vehicle_details_screen.dart';
@@ -61,6 +63,8 @@ class AyoHostApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => ProfileController(HostRepository(apiClient)),
         ),
+        ChangeNotifierProvider(create: (_) => NotificationController()),
+        ChangeNotifierProvider(create: (_) => EarningsController()),
         ChangeNotifierProvider(
           create: (_) => OnboardingController(OnboardingRepository(apiClient)),
         ),
@@ -84,6 +88,8 @@ class AyoHostApp extends StatelessWidget {
           MoreMenuScreen.route: (_) => const MoreMenuScreen(),
           AccountDetailsScreen.route: (_) => const AccountDetailsScreen(),
           PerformanceInsightsScreen.route: (_) => const PerformanceInsightsScreen(),
+          NotificationsScreen.route: (_) => const NotificationsScreen(),
+          EarningsScreen.route: (_) => const EarningsScreen(),
         },
       ),
     );

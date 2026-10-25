@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
+import '../core/services/location_service.dart';
 import '../core/services/logger_service.dart';
 import '../core/services/toast_service.dart';
 import '../data/models/models.dart';
 import '../data/repositories/repositories.dart';
 import '../data/services/host_service.dart';
+import '../data/services/notification_service.dart';
 import '../data/services/trips_service.dart';
 import '../ui/widgets/app_image_view.dart';
 
@@ -239,6 +241,7 @@ class DashboardController extends ChangeNotifier {
   DashboardStats? stats;
   List<Vehicle> vehicles = [];
   List<Trip> upcomingTrips = [];
+  List<Trip> activeTrips = [];
   HostProfile? hostProfile;
   SupportConfig? supportConfig;
   PlatformPolicies? platformPolicies;
@@ -319,6 +322,7 @@ class DashboardController extends ChangeNotifier {
       platformPolicies = results[4] as PlatformPolicies;
       onboardingStatus = results[5] as OnboardingStatus;
       paymentsConfig = results[6] as PaymentsConfig;
+      activeTrips = await TripsService.getActiveTrips();
 
       Handover? nextHandover;
       if (upcomingTrips.isNotEmpty) {
@@ -361,22 +365,106 @@ class DashboardController extends ChangeNotifier {
   Future<bool> startTripHandover({
     required String tripId,
     required String token,
-    required double hostLat,
-    required double hostLng,
+    double? hostLat,
+    double? hostLng,
+    int? odometerReading,
+    int? fuelPercent,
   }) async {
     try {
+      // Use the host's real location; fall back to the vehicle's saved pickup point.
+      var lat = hostLat;
+      var lng = hostLng;
+      if (lat == null || lng == null) {
+        final pos = await LocationService.currentPosition();
+        if (pos != null) {
+          lat = pos.lat;
+          lng = pos.lng;
+        } else {
+          final v = vehicles.where((x) => x.lat != null && x.lng != null);
+          if (v.isNotEmpty) {
+            lat = v.first.lat;
+            lng = v.first.lng;
+          }
+        }
+      }
+      if (lat == null || lng == null) {
+        ToastService.showError('Location unavailable. Please enable location to verify handover.');
+        return false;
+      }
       await HostService.startHandover(
         tripId: tripId,
         token: token,
-        hostLat: hostLat,
-        hostLng: hostLng,
+        hostLat: lat,
+        hostLng: lng,
+        odometerReading: odometerReading,
+        fuelPercent: fuelPercent,
       );
       await load();
       return true;
     } catch (e) {
+      ToastService.showError('Handover failed: $e');
       return false;
     }
   }
+
+  // ─────────── Trip end / cancel ───────────
+  Future<bool> endTrip(String tripId) async {
+    try {
+      await HostService.endTrip(tripId);
+      ToastService.showSuccess('Trip completed. Security deposit refund triggered.');
+      await load();
+      return true;
+    } catch (e) {
+      ToastService.showError('Could not end trip: $e');
+      return false;
+    }
+  }
+
+  Future<bool> cancelTrip(String tripId, String reason) async {
+    try {
+      await HostService.cancelTrip(tripId, reason);
+      ToastService.showSuccess('Trip cancelled.');
+      await load();
+      return true;
+    } catch (e) {
+      ToastService.showError('Could not cancel trip: $e');
+      return false;
+    }
+  }
+
+  // ─────────── Vehicle remote controls ───────────
+  final Set<String> busyVehicleIds = {};
+  bool isBusy(String id) => busyVehicleIds.contains(id);
+
+  Future<void> _runVehicleAction(String id, Future<void> Function() action) async {
+    if (busyVehicleIds.contains(id)) return;
+    busyVehicleIds.add(id);
+    notifyListeners();
+    try {
+      await action();
+      await load();
+    } catch (e) {
+      ToastService.showError('Action failed: $e');
+    } finally {
+      busyVehicleIds.remove(id);
+      notifyListeners();
+    }
+  }
+
+  Future<void> lockVehicle(String id) => _runVehicleAction(id, () async {
+        final ok = await HostService.lockVehicle(id);
+        ok ? ToastService.showSuccess('Car locked') : ToastService.showError('Lock failed');
+      });
+
+  Future<void> unlockVehicle(String id) => _runVehicleAction(id, () async {
+        final ok = await HostService.unlockVehicle(id);
+        ok ? ToastService.showSuccess('Car unlocked') : ToastService.showError('Unlock failed');
+      });
+
+  Future<void> toggleVehicleStatus(String id) => _runVehicleAction(id, () async {
+        final status = await HostService.toggleVehicleStatus(id);
+        ToastService.showSuccess(status == 'PAUSED' ? 'Listing paused' : 'Listing resumed');
+      });
 }
 
 class ProfileController extends ChangeNotifier {
@@ -482,6 +570,14 @@ class OnboardingController extends ChangeNotifier {
   bool hourlyRentals = false;
   bool hostDelivery = false;
   String pickupAddress = '';
+  double? pickupLat;
+  double? pickupLng;
+  bool locationLoading = false;
+  double weekendRate = 0; // in Rupees, 0 = auto (1.2x daily)
+  int seatingCapacity = 5;
+  String mileage = '';
+  String drivetrain = '2WD';
+  String fuelType = 'Petrol';
 
   // 3 Mandatory Vehicle Listing Photo Slots (Front/Cover, Interior, Rear)
   String frontPhotoUrl = '';      // Front Angle (COVER) - Mandatory
@@ -644,6 +740,13 @@ class OnboardingController extends ChangeNotifier {
     hourlyRentals = false;
     hostDelivery = false;
     pickupAddress = '';
+    pickupLat = null;
+    pickupLng = null;
+    weekendRate = 0;
+    seatingCapacity = 5;
+    mileage = '';
+    drivetrain = '2WD';
+    fuelType = 'Petrol';
     frontPhotoUrl = '';
     frontPhotoLocalPath = null;
     interiorPhotoUrl = '';
@@ -658,6 +761,32 @@ class OnboardingController extends ChangeNotifier {
   }
 
   double get estimatedMonthly => dailyRate * 22;
+
+  /// Auto-detect pickup location from device GPS (address + pincode + coordinates).
+  /// [onlyIfEmpty] keeps anything the host already typed.
+  Future<bool> autoFetchCurrentLocation({bool silent = false}) async {
+    if (locationLoading) return false;
+    locationLoading = true;
+    notifyListeners();
+    try {
+      final p = await LocationService.currentPlace();
+      if (p == null) {
+        if (!silent) {
+          ToastService.showWarning('Location unavailable. Enable GPS/permission or enter pincode manually.');
+        }
+        return false;
+      }
+      pickupLat = p.lat;
+      pickupLng = p.lng;
+      if (p.pincode.isNotEmpty) pincode = p.pincode;
+      if (p.address.isNotEmpty) pickupAddress = p.address;
+      if (!silent) ToastService.showSuccess('Current location fetched');
+      return true;
+    } finally {
+      locationLoading = false;
+      notifyListeners();
+    }
+  }
 
   /// Pincode Lookup API (https://api.postalpincode.in/pincode/$pin)
   Future<bool> fetchAddressFromPincode(String pin) async {
@@ -694,6 +823,9 @@ class OnboardingController extends ChangeNotifier {
             plateState = matchedState;
 
             ToastService.showSuccess('Location fetched: $district, $state');
+            final g = await LocationService.geocodeAddress('$name, $district, $state, $cleanPin, India');
+            pickupLat = g?.lat;
+            pickupLng = g?.lng;
             notifyListeners();
             return true;
           }
@@ -915,6 +1047,24 @@ class OnboardingController extends ChangeNotifier {
       return false;
     }
 
+    // Resolve pickup coordinates: saved (GPS / pincode) -> geocode typed address -> device GPS.
+    double? lat = pickupLat;
+    double? lng = pickupLng;
+    if (lat == null || lng == null) {
+      final g = await LocationService.geocodeAddress('$pickupAddress $pincode India');
+      lat = g?.lat;
+      lng = g?.lng;
+    }
+    if (lat == null || lng == null) {
+      final pos = await LocationService.currentPosition();
+      lat = pos?.lat;
+      lng = pos?.lng;
+    }
+    if (lat == null || lng == null) {
+      ToastService.showWarning('Could not locate the pickup address. Tap "Use current location" or enter a valid pincode.');
+      return false;
+    }
+
     saving = true;
     lastError = null;
     notifyListeners();
@@ -932,10 +1082,14 @@ class OnboardingController extends ChangeNotifier {
         'name': '${make.trim()} ${model.trim()}',
         'description': 'Host vehicle listed on AYO platform.',
         'daily_rate': ratePaise,
-        'weekend_daily_rate': (ratePaise * 1.2).round(),
+        'weekend_daily_rate': weekendRate > 0 ? (weekendRate * 100).round() : (ratePaise * 1.2).round(),
         'hourly_rate': hourlyRentals ? (ratePaise / 10).round() : 0,
-        'lat': 12.9716,
-        'lng': 77.5946,
+        'lat': lat,
+        'lng': lng,
+        'seating_capacity': seatingCapacity,
+        'mileage': mileage.trim().isEmpty ? 'N/A' : mileage.trim(),
+        'drivetrain': drivetrain,
+        'fuel_type': fuelType,
         'address': pickupAddress.trim(),
         'photos': validPhotos,
         'instant_unlock': true,
@@ -1087,6 +1241,120 @@ class OnboardingController extends ChangeNotifier {
       return false;
     } finally {
       verifyingUpi = false;
+      notifyListeners();
+    }
+  }
+}
+
+
+/// Notification inbox + unread badge.
+class NotificationController extends ChangeNotifier {
+  List<AppNotification> items = [];
+  int unread = 0;
+  bool loading = false;
+  bool loadingMore = false;
+  bool hasMore = false;
+  String? error;
+  int _page = 1;
+  static const _limit = 20;
+
+  Future<void> refreshUnread() async {
+    try {
+      unread = await NotificationService.unreadCount();
+      notifyListeners();
+    } catch (e) {
+      LoggerService.error('Unread count failed', error: e);
+    }
+  }
+
+  Future<void> load() async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      final page = await NotificationService.list(page: 1, limit: _limit);
+      items = page.items;
+      hasMore = page.hasMore;
+      _page = 1;
+      await refreshUnread();
+    } catch (e) {
+      error = 'Could not load notifications. Pull down to try again.';
+      LoggerService.error('Load notifications failed', error: e);
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> loadMore() async {
+    if (loadingMore || loading || !hasMore) return;
+    loadingMore = true;
+    notifyListeners();
+    try {
+      final page = await NotificationService.list(page: _page + 1, limit: _limit);
+      _page += 1;
+      items = [...items, ...page.items];
+      hasMore = page.hasMore;
+    } catch (e) {
+      LoggerService.error('Load more notifications failed', error: e);
+    } finally {
+      loadingMore = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> markRead(AppNotification n) async {
+    if (n.isRead) return;
+    final i = items.indexWhere((e) => e.id == n.id);
+    if (i != -1) items[i] = n.copyWith(isRead: true);
+    if (unread > 0) unread -= 1;
+    notifyListeners();
+    try {
+      await NotificationService.markRead(n.id);
+    } catch (e) {
+      if (i != -1) items[i] = n;
+      unread += 1;
+      notifyListeners();
+      ToastService.showError('Could not mark as read');
+    }
+  }
+
+  Future<void> markAllRead() async {
+    if (unread == 0 && items.every((e) => e.isRead)) return;
+    final before = items;
+    final beforeUnread = unread;
+    items = items.map((e) => e.copyWith(isRead: true)).toList();
+    unread = 0;
+    notifyListeners();
+    try {
+      await NotificationService.markAllRead();
+      ToastService.showSuccess('All notifications marked as read');
+    } catch (e) {
+      items = before;
+      unread = beforeUnread;
+      notifyListeners();
+      ToastService.showError('Could not mark all as read');
+    }
+  }
+}
+
+/// Earnings overview (`GET /host/earnings`).
+class EarningsController extends ChangeNotifier {
+  EarningsStats? stats;
+  bool loading = false;
+  String? error;
+
+  Future<void> load() async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      stats = await HostService.getEarnings();
+    } catch (e) {
+      error = 'Could not load earnings. Check your connection and try again.';
+      LoggerService.error('Load earnings failed', error: e);
+    } finally {
+      loading = false;
       notifyListeners();
     }
   }
