@@ -329,6 +329,15 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                 onTap: () => Navigator.pushNamed(context, NotificationsScreen.route),
               ),
               _MenuItem(
+                icon: Icons.notifications_active_outlined,
+                title: 'Notifications',
+                subtitle: 'Booking, KYC and payout updates',
+                tag: context.watch<NotificationController>().unread > 0
+                    ? '${context.watch<NotificationController>().unread} new'
+                    : null,
+                onTap: () => Navigator.pushNamed(context, NotificationsScreen.route),
+              ),
+              _MenuItem(
                 icon: Icons.insights_rounded,
                 title: 'Listing Performance & Insights',
                 subtitle: 'Circular chart, views, conversion & earnings boost',
