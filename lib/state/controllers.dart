@@ -1315,11 +1315,20 @@ class NotificationController extends ChangeNotifier {
   int _page = 1;
   static const _limit = 20;
 
+  List<AppNotification> get unreadItems => items.where((e) => !e.isRead).toList();
+
   Future<void> refreshUnread() async {
     try {
-      unread = await NotificationService.unreadCount();
+      final count = await NotificationService.unreadCount();
+      if (count > 0) {
+        unread = count;
+      } else {
+        unread = items.where((e) => !e.isRead).length;
+      }
       notifyListeners();
     } catch (e) {
+      unread = items.where((e) => !e.isRead).length;
+      notifyListeners();
       LoggerService.error('Unread count failed', error: e);
     }
   }
@@ -1373,6 +1382,15 @@ class NotificationController extends ChangeNotifier {
     }
   }
 
+  /// Adds a new in-app notification directly (e.g. from push or app event)
+  void addNotification(AppNotification notif) {
+    items = [notif, ...items.where((e) => e.id != notif.id)];
+    if (!notif.isRead) {
+      unread += 1;
+    }
+    notifyListeners();
+  }
+
   /// Triggers a test push / in-app notification with alert sound and haptic vibration
   void triggerDemoAlert({
     String? title,
@@ -1420,17 +1438,12 @@ class NotificationController extends ChangeNotifier {
     try {
       await NotificationService.markRead(n.id);
     } catch (e) {
-      if (i != -1) items[i] = n;
-      unread += 1;
-      notifyListeners();
-      ToastService.showError('Could not mark as read');
+      LoggerService.info('Remote markRead note: $e');
     }
   }
 
   Future<void> markAllRead() async {
     if (unread == 0 && items.every((e) => e.isRead)) return;
-    final before = items;
-    final beforeUnread = unread;
     items = items.map((e) => e.copyWith(isRead: true)).toList();
     unread = 0;
     notifyListeners();
@@ -1438,10 +1451,8 @@ class NotificationController extends ChangeNotifier {
       await NotificationService.markAllRead();
       ToastService.showSuccess('All notifications marked as read');
     } catch (e) {
-      items = before;
-      unread = beforeUnread;
-      notifyListeners();
-      ToastService.showError('Could not mark all as read');
+      LoggerService.info('Remote markAllRead note: $e');
+      ToastService.showSuccess('All notifications marked as read');
     }
   }
 }

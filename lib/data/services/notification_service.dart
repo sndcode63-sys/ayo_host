@@ -25,41 +25,55 @@ class NotificationService {
   /// `POST /notifications/fcm-token`
   static Future<void> registerFcmToken(String token, String platform) async {
     final body = {'fcm_token': token, 'device_platform': platform};
-    try {
-      await ApiClient.instance.post(ApiConfig.fcmToken, data: body);
-    } on ApiException catch (e) {
-      if (e.statusCode == 404) {
-        // Fallback endpoints
-        for (final path in ['/host/notifications/fcm-token', '/users/fcm-token']) {
-          try {
-            await ApiClient.instance.post(path, data: body);
-            return;
-          } catch (_) {}
+    final candidates = [
+      ApiConfig.fcmToken,
+      '/host/notifications/fcm-token',
+      '/users/fcm-token',
+    ];
+
+    for (final path in candidates) {
+      try {
+        await ApiClient.instance.post(path, data: body);
+        return;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404 || e.statusCode == 403) {
+          continue;
         }
+        LoggerService.info('FCM token status (${e.statusCode}) on $path');
+        break;
+      } catch (e) {
+        LoggerService.info('FCM token registration info: $e');
+        break;
       }
-      LoggerService.info('FCM token registration status notice (${e.statusCode})');
-    } catch (e) {
-      LoggerService.info('FCM token registration info: $e');
     }
   }
 
-  /// `GET /notifications?page=&limit=`
+  /// `GET /notifications/mine` or fallback `GET /notifications`
   static Future<NotificationPage> list({int page = 1, int limit = 20}) async {
     final query = {'page': page, 'limit': limit};
     Map<String, dynamic>? res;
     
-    try {
-      res = await ApiClient.instance.get(ApiConfig.notifications, queryParameters: query);
-    } on ApiException catch (e) {
-      if (e.statusCode == 404) {
-        for (final path in ['/host/notifications', '/users/notifications']) {
-          try {
-            res = await ApiClient.instance.get(path, queryParameters: query);
-            break;
-          } catch (_) {}
+    final candidates = [
+      ApiConfig.notificationsMine,
+      ApiConfig.notifications,
+      '/host/notifications',
+      '/users/notifications',
+    ];
+
+    for (final path in candidates) {
+      try {
+        res = await ApiClient.instance.get(path, queryParameters: query);
+        break;
+      } on ApiException catch (e) {
+        // If 403 (e.g. backend policy not bound) or 404, try next candidate
+        if (e.statusCode == 404 || e.statusCode == 403) {
+          continue;
         }
+        break;
+      } catch (_) {
+        break;
       }
-    } catch (_) {}
+    }
 
     if (res == null) {
       return NotificationPage(const [], 0, page, limit);
@@ -83,18 +97,26 @@ class NotificationService {
   /// `GET /notifications/unread-count`
   static Future<int> unreadCount() async {
     Map<String, dynamic>? res;
-    try {
-      res = await ApiClient.instance.get(ApiConfig.notificationsUnread);
-    } on ApiException catch (e) {
-      if (e.statusCode == 404) {
-        for (final path in ['/host/notifications/unread-count', '/users/notifications/unread-count']) {
-          try {
-            res = await ApiClient.instance.get(path);
-            break;
-          } catch (_) {}
+    final candidates = [
+      ApiConfig.notificationsUnread,
+      '/notifications/mine/unread-count',
+      '/host/notifications/unread-count',
+      '/users/notifications/unread-count',
+    ];
+
+    for (final path in candidates) {
+      try {
+        res = await ApiClient.instance.get(path);
+        break;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404 || e.statusCode == 403) {
+          continue;
         }
+        break;
+      } catch (_) {
+        break;
       }
-    } catch (_) {}
+    }
 
     if (res == null) return 0;
 
@@ -109,27 +131,47 @@ class NotificationService {
 
   /// `PATCH /notifications/:id/read`
   static Future<void> markRead(String id) async {
-    try {
-      await ApiClient.instance.patch(ApiConfig.notificationRead(id));
-    } on ApiException catch (e) {
-      if (e.statusCode == 404) {
-        try {
-          await ApiClient.instance.patch('/host/notifications/$id/read');
-        } catch (_) {}
+    final candidates = [
+      ApiConfig.notificationRead(id),
+      '/notifications/mine/$id/read',
+      '/host/notifications/$id/read',
+    ];
+
+    for (final path in candidates) {
+      try {
+        await ApiClient.instance.patch(path);
+        return;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404 || e.statusCode == 403) {
+          continue;
+        }
+        break;
+      } catch (_) {
+        break;
       }
-    } catch (_) {}
+    }
   }
 
   /// `POST /notifications/read-all`
   static Future<void> markAllRead() async {
-    try {
-      await ApiClient.instance.post(ApiConfig.notificationsReadAll);
-    } on ApiException catch (e) {
-      if (e.statusCode == 404) {
-        try {
-          await ApiClient.instance.post('/host/notifications/read-all');
-        } catch (_) {}
+    final candidates = [
+      ApiConfig.notificationsReadAll,
+      '/notifications/mine/read-all',
+      '/host/notifications/read-all',
+    ];
+
+    for (final path in candidates) {
+      try {
+        await ApiClient.instance.post(path);
+        return;
+      } on ApiException catch (e) {
+        if (e.statusCode == 404 || e.statusCode == 403) {
+          continue;
+        }
+        break;
+      } catch (_) {
+        break;
       }
-    } catch (_) {}
+    }
   }
 }

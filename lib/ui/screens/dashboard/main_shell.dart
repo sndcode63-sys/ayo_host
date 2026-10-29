@@ -30,8 +30,10 @@ class _MainShellState extends State<MainShell> {
 
       // Push: register FCM token with backend and keep the unread badge fresh.
       final notifications = context.read<NotificationController>();
-      PushService.onActivity = notifications.refreshUnread;
-      notifications.refreshUnread();
+      PushService.onActivity = () {
+        notifications.refreshUnread();
+      };
+      notifications.load();
       PushService.init();
     });
   }

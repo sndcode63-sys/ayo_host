@@ -8,8 +8,10 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
+import '../documents/vehicle_documents_screen.dart';
+import '../onboarding/payout_setup_screen.dart';
 
-/// Notification inbox: unread highlight, mark one / mark all read, infinite scroll.
+/// Notification inbox: unread highlight, mark one / mark all read, category filters, infinite scroll.
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
@@ -22,6 +24,14 @@ class NotificationsScreen extends StatefulWidget {
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final _scroll = ScrollController();
   String? _fcmToken;
+  int _selectedFilterIndex = 0;
+
+  static const List<String> _filters = [
+    'All',
+    'Bookings',
+    'Vehicles',
+    'Payouts & KYC',
+  ];
 
   @override
   void initState() {
@@ -53,6 +63,66 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } else {
       ToastService.showInfo('Fetching FCM token... Please try again in a moment');
     }
+  }
+
+  void _onNotificationTap(AppNotification n) {
+    final c = context.read<NotificationController>();
+    c.markRead(n);
+
+    final t = '${n.type} ${n.title} ${n.body}'.toLowerCase();
+    if (t.contains('kyc') || t.contains('payout') || t.contains('bank') || t.contains('upi')) {
+      Navigator.pushNamed(context, PayoutSetupScreen.route);
+    } else if (t.contains('vehicle') || t.contains('listing') || t.contains('car') || t.contains('doc')) {
+      Navigator.pushNamed(context, VehicleDocumentsScreen.route);
+    } else if (n.body.length > 80) {
+      _showNotificationDetail(n);
+    }
+  }
+
+  void _showNotificationDetail(AppNotification n) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppColors.fieldBorder,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(n.title, style: AppText.sectionTitle.copyWith(fontSize: 18)),
+              const SizedBox(height: 10),
+              Text(n.body, style: AppText.body.copyWith(fontSize: 14, height: 1.4)),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -177,6 +247,63 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
+  Widget _buildFilterChips(NotificationController c) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: List.generate(_filters.length, (idx) {
+            final isSelected = _selectedFilterIndex == idx;
+            final label = _filters[idx];
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: ChoiceChip(
+                label: Text(label),
+                selected: isSelected,
+                labelStyle: TextStyle(
+                  color: isSelected ? Colors.white : AppColors.textSecondary,
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                ),
+                selectedColor: AppColors.primary,
+                backgroundColor: AppColors.card,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(
+                    color: isSelected ? AppColors.primary : AppColors.cardBorder,
+                  ),
+                ),
+                onSelected: (selected) {
+                  if (selected) {
+                    setState(() => _selectedFilterIndex = idx);
+                  }
+                },
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  List<AppNotification> _filterNotifications(List<AppNotification> all) {
+    if (_selectedFilterIndex == 0) return all;
+    return all.where((n) {
+      final t = '${n.type} ${n.title} ${n.body}'.toLowerCase();
+      if (_selectedFilterIndex == 1) {
+        return t.contains('book') || t.contains('trip') || t.contains('handover') || t.contains('ride');
+      }
+      if (_selectedFilterIndex == 2) {
+        return t.contains('vehicle') || t.contains('car') || t.contains('listing') || t.contains('fleet') || t.contains('doc');
+      }
+      if (_selectedFilterIndex == 3) {
+        return t.contains('payout') || t.contains('kyc') || t.contains('bank') || t.contains('upi') || t.contains('earn');
+      }
+      return true;
+    }).toList();
+  }
+
   Widget _body(NotificationController c) {
     if (c.loading && c.items.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -190,6 +317,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         onAction: c.load,
       );
     }
+
+    final filtered = _filterNotifications(c.items);
+
     if (c.items.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -206,7 +336,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       );
     }
 
-    final totalCount = c.items.length + 1 + (c.loadingMore ? 1 : 0);
+    final totalCount = filtered.length + 2 + (c.loadingMore ? 1 : 0);
 
     return ListView.builder(
       controller: _scroll,
@@ -217,8 +347,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         if (i == 0) {
           return _buildFcmDemoCard(c);
         }
-        final itemIndex = i - 1;
-        if (itemIndex >= c.items.length) {
+        if (i == 1) {
+          return _buildFilterChips(c);
+        }
+
+        final itemIndex = i - 2;
+        if (itemIndex >= filtered.length) {
           return const Padding(
             padding: EdgeInsets.all(16),
             child: Center(
@@ -230,10 +364,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
           );
         }
-        final n = c.items[itemIndex];
+
+        final n = filtered[itemIndex];
         return Padding(
           padding: const EdgeInsets.only(bottom: 10),
-          child: _NotificationTile(n: n, onTap: () => c.markRead(n)),
+          child: _NotificationTile(
+            n: n,
+            onTap: () => _onNotificationTap(n),
+          ),
         );
       },
     );

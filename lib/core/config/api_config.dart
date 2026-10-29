@@ -68,6 +68,7 @@ class ApiConfig {
   // Notifications & FCM
   static const String fcmToken = '/notifications/fcm-token';
   static const String notifications = '/notifications';
+  static const String notificationsMine = '/notifications/mine';
   static const String notificationsUnread = '/notifications/unread-count';
   static const String notificationsReadAll = '/notifications/read-all';
   static String notificationRead(String id) => '/notifications/$id/read';

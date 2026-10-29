@@ -1227,6 +1227,7 @@ class AppNotification {
   final String type;
   final bool isRead;
   final DateTime? createdAt;
+  final Map<String, dynamic>? data;
 
   const AppNotification({
     required this.id,
@@ -1235,6 +1236,7 @@ class AppNotification {
     this.type = '',
     this.isRead = false,
     this.createdAt,
+    this.data,
   });
 
   AppNotification copyWith({bool? isRead}) => AppNotification(
@@ -1244,6 +1246,7 @@ class AppNotification {
         type: type,
         isRead: isRead ?? this.isRead,
         createdAt: createdAt,
+        data: data,
       );
 
   factory AppNotification.fromJson(Map<String, dynamic> j) {
@@ -1255,6 +1258,9 @@ class AppNotification {
       type: (j['type'] ?? j['category'] ?? '').toString(),
       isRead: read is bool ? read : (j['read_at'] != null),
       createdAt: DateTime.tryParse((j['created_at'] ?? j['createdAt'] ?? '').toString())?.toLocal(),
+      data: j['data'] is Map<String, dynamic>
+          ? j['data'] as Map<String, dynamic>
+          : (j['payload'] is Map<String, dynamic> ? j['payload'] as Map<String, dynamic> : null),
     );
   }
 }
