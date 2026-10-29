@@ -18,6 +18,7 @@ class ApiConfig {
   static const String authMe = '/auth/me';
 
   // User Endpoints
+
   static const String usersMe = '/users/me';
   static const String usersProfile = '/users/profile';
 
