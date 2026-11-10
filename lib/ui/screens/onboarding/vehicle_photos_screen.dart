@@ -4,12 +4,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 
-import '../../../core/config/api_config.dart';
 import '../../../core/services/logger_service.dart';
 import '../../../core/services/razorpay_service.dart';
 import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/animation_utils.dart';
 import '../../../data/services/host_service.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
@@ -221,6 +221,76 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
     await ctrl.uploadDocumentFile(docType, File(picked.path));
   }
 
+  void _confirmDeletePhoto(BuildContext context, String slotName, Future<void> Function() onConfirm) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete $slotName?'),
+        content: Text(
+          'Are you sure you want to delete this $slotName photo from cloud storage?',
+          style: const TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await onConfirm();
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDeleteDoc(BuildContext context, String docType) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete $docType Document?'),
+        content: Text(
+          'Are you sure you want to delete this $docType document from cloud storage?',
+          style: const TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final ctrl = context.read<OnboardingController>();
+              final vId = ctrl.createdVehicleId;
+              if (vId.isNotEmpty) {
+                final ok = await ctrl.deleteDocument(vehicleId: vId, type: docType);
+                if (ok) {
+                  ToastService.showSuccess('$docType document deleted from storage');
+                }
+              } else {
+                ctrl.uploadedDocUrls.remove(docType);
+                ToastService.showSuccess('$docType document removed');
+              }
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showUploadOptions(BuildContext context, String docType) {
     showModalBottomSheet(
       context: context,
@@ -342,11 +412,15 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
       final fee = checklist?.listingFee;
       if (ctrl.lastError == 'LISTING_FEE_REQUIRED' || (fee != null && !fee.bypassEnabled && fee.amountPaise > 0)) {
         var feePaise = fee?.amountPaise;
-        if (feePaise == null) {
-          try {
-            feePaise = (await HostService.getListingFee()).feePaise;
-          } catch (_) {
-            feePaise = 0; // real amount comes from the payment order below
+        if (feePaise == null || feePaise <= 0) {
+          if (ctrl.submitResult?.amountPaise != null && ctrl.submitResult!.amountPaise > 0) {
+            feePaise = ctrl.submitResult!.amountPaise;
+          } else {
+            try {
+              feePaise = (await HostService.getListingFee()).feePaise;
+            } catch (_) {
+              feePaise = 0; // real amount comes from the payment order below
+            }
           }
         }
         await _triggerRazorpayFeePayment(
@@ -381,6 +455,90 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
     }
   }
 
+  void _showPaymentFailedDialog({
+    required BuildContext context,
+    required String vehicleId,
+    required String errorMessage,
+    required int amountPaise,
+    required AuthController authCtrl,
+    required DashboardController dashCtrl,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.payment, color: AppColors.primary, size: 22),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text('Payment Incomplete', style: AppText.sectionTitle.copyWith(fontSize: 16)),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              amountPaise > 0
+                  ? 'Listing fee payment of ₹${amountPaise ~/ 100} could not be completed ($errorMessage).'
+                  : 'Listing fee payment could not be completed ($errorMessage).',
+              style: AppText.body.copyWith(fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'You can retry the online payment now, or submit your vehicle for offline admin verification.',
+              style: AppText.body.copyWith(fontSize: 12, color: AppColors.textMuted),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+          ),
+          OutlinedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final ctrl = context.read<OnboardingController>();
+              final nav = Navigator.of(context);
+              try {
+                ToastService.showInfo('Submitting listing for admin review...');
+                final subRes = await HostService.submitVehicleForReview(vehicleId);
+                if (subRes.success || subRes.listingFeeRequired == false) {
+                  ToastService.showSuccess('Vehicle submitted for admin review!');
+                  ctrl.resetVehicleDraft();
+                  await dashCtrl.load();
+                  if (mounted) {
+                    nav.pushNamedAndRemoveUntil(MainShell.route, (r) => false);
+                  }
+                } else {
+                  ToastService.showWarning(
+                    subRes.amountPaise > 0
+                        ? 'Listing fee of ₹${subRes.amountPaise ~/ 100} is required before submission. Please complete payment.'
+                        : 'Listing fee payment is required before submission. Please complete payment.',
+                  );
+                }
+              } catch (_) {
+                ToastService.showWarning('Please complete the listing fee payment to submit for review.');
+              }
+            },
+            child: const Text('Admin Review'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _triggerRazorpayFeePayment(vehicleId, amountPaise, authCtrl, dashCtrl);
+            },
+            child: const Text('Retry Payment', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _triggerRazorpayFeePayment(
     String vehicleId,
     int amountPaise,
@@ -393,6 +551,16 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
       String activeOrderId = ctrl.submitResult?.orderId ?? '';
       String activeKeyId = ctrl.submitResult?.keyId ?? '';
       int activeAmount = ctrl.submitResult?.amountPaise ?? amountPaise;
+
+      // Normalize amount: strictly in paise (1 INR = 100 paise)
+      if (activeAmount > 0 && activeAmount < 1000) {
+        activeAmount = activeAmount * 100;
+      }
+      if (activeAmount <= 0) {
+        try {
+          activeAmount = (await HostService.getListingFee()).feePaise;
+        } catch (_) {}
+      }
 
       if (activeOrderId.isEmpty) {
         ToastService.showInfo('Creating Razorpay payment order...');
@@ -408,8 +576,24 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
           return;
         }
         activeOrderId = feeOrder.orderId;
-        activeKeyId = feeOrder.keyId;
-        activeAmount = feeOrder.amount > 0 ? feeOrder.amount : amountPaise;
+        if (feeOrder.keyId.isNotEmpty) {
+          activeKeyId = feeOrder.keyId;
+        }
+        if (feeOrder.amount > 0) {
+          activeAmount = feeOrder.amount;
+        }
+      }
+
+      // Resolve key ID dynamically from backend
+      final resolvedKeyId = activeKeyId.isNotEmpty
+          ? activeKeyId
+          : (dashCtrl.paymentsConfig?.keyId.isNotEmpty == true
+              ? dashCtrl.paymentsConfig!.keyId
+              : '');
+
+      if (resolvedKeyId.isEmpty) {
+        ToastService.showError('Payment gateway key is not configured on the server.');
+        return;
       }
 
       RazorpayService.instance.initialize(
@@ -430,22 +614,38 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
               }
             } catch (_) {}
           }
-          if (mounted) {
-            ToastService.showSuccess('Listing fee paid! Vehicle submitted for admin review.');
-            ctrl.resetVehicleDraft();
-            await dashCtrl.load();
+          if (verified) {
             if (mounted) {
-              Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+              ToastService.showSuccess('Listing fee paid! Vehicle submitted for admin review.');
+              ctrl.resetVehicleDraft();
+              await dashCtrl.load();
+              if (mounted) {
+                Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+              }
+            }
+          } else {
+            if (mounted) {
+              ToastService.showError('Payment verification failed. Please contact support or retry.');
             }
           }
         },
         onFailure: (PaymentFailureResponse res) {
-          ToastService.showError('Razorpay payment cancelled: ${res.message}');
+          LoggerService.warning('Razorpay payment failure: [${res.code}] ${res.message}');
+          if (mounted) {
+            _showPaymentFailedDialog(
+              context: context,
+              vehicleId: vehicleId,
+              errorMessage: res.message ?? 'Payment cancelled',
+              amountPaise: activeAmount,
+              authCtrl: authCtrl,
+              dashCtrl: dashCtrl,
+            );
+          }
         },
       );
 
       RazorpayService.instance.openCheckout(
-        keyId: activeKeyId.isNotEmpty ? activeKeyId : ApiConfig.defaultRazorpayKey,
+        keyId: resolvedKeyId,
         amountPaise: activeAmount,
         orderId: activeOrderId,
         name: 'AYO Host Platform',
@@ -531,7 +731,7 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
                   imageUrl: ob.frontPhotoUrl,
                   localPath: ob.frontPhotoLocalPath,
                   onTap: () => _showAddPhotoOptions(context, slot: 'FRONT', slotName: 'Front Angle (Cover)'),
-                  onDelete: () => ob.removeFrontPhoto(),
+                  onDelete: () => _confirmDeletePhoto(context, 'Front Cover', () => ob.removeFrontPhoto()),
                 ),
 
                 // Slot 2: Interior / Cockpit - Mandatory
@@ -543,7 +743,7 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
                   imageUrl: ob.interiorPhotoUrl,
                   localPath: ob.interiorPhotoLocalPath,
                   onTap: () => _showAddPhotoOptions(context, slot: 'INTERIOR', slotName: 'Interior / Cockpit'),
-                  onDelete: () => ob.removeInteriorPhoto(),
+                  onDelete: () => _confirmDeletePhoto(context, 'Interior', () => ob.removeInteriorPhoto()),
                 ),
 
                 // Slot 3: Rear & Trunk - Mandatory
@@ -555,7 +755,7 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
                   imageUrl: ob.rearPhotoUrl,
                   localPath: ob.rearPhotoLocalPath,
                   onTap: () => _showAddPhotoOptions(context, slot: 'REAR', slotName: 'Rear & Trunk'),
-                  onDelete: () => ob.removeRearPhoto(),
+                  onDelete: () => _confirmDeletePhoto(context, 'Rear & Trunk', () => ob.removeRearPhoto()),
                 ),
 
                 // Slot 4: Add More Angles (Up to 8 total)
@@ -599,7 +799,11 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
                           top: 4,
                           right: 4,
                           child: InkWell(
-                            onTap: () => ob.removeAdditionalPhoto(index),
+                            onTap: () => _confirmDeletePhoto(
+                              context,
+                              'Additional Photo',
+                              () => ob.removeAdditionalPhoto(index),
+                            ),
                             child: Container(
                               padding: const EdgeInsets.all(3),
                               decoration: const BoxDecoration(color: Colors.black54, shape: BoxShape.circle),
@@ -685,6 +889,15 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
                           ],
                         ),
                       ),
+                      if (ob.uploadedDocUrls.containsKey(docType)) ...[
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded,
+                              size: 18, color: Color(0xFFDC2626)),
+                          tooltip: 'Delete document',
+                          onPressed: () => _confirmDeleteDoc(context, docType),
+                        ),
+                        const SizedBox(width: 4),
+                      ],
                       ElevatedButton.icon(
                         onPressed: () => _showUploadOptions(context, docType),
                         icon: Icon(
@@ -694,7 +907,7 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
                           size: 14,
                         ),
                         label: Text(
-                          ob.uploadedDocUrls.containsKey(docType) ? 'Uploaded' : 'Upload',
+                          ob.uploadedDocUrls.containsKey(docType) ? 'Replace' : 'Upload',
                           style: const TextStyle(fontSize: 10),
                         ),
                         style: ElevatedButton.styleFrom(
@@ -717,13 +930,19 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
             Text('Photos slide automatically — this is how guests and admin will see your listing.',
                 style: AppText.body.copyWith(fontSize: 10)),
             const SizedBox(height: 12),
-            ListingPreviewCard(ob: ob),
+            FadeSlideIn(
+              delay: const Duration(milliseconds: 100),
+              child: ListingPreviewCard(ob: ob),
+            ),
             const SizedBox(height: 22),
-            PrimaryButton(
-              label: 'Submit Listing & Go to Home',
-              icon: Icons.check_circle_rounded,
-              loading: ob.saving,
-              onPressed: _handleListingSubmission,
+            ScaleOnPress(
+              onTap: ob.saving ? null : _handleListingSubmission,
+              child: PrimaryButton(
+                label: 'Submit Listing & Go to Home',
+                icon: Icons.check_circle_rounded,
+                loading: ob.saving,
+                onPressed: _handleListingSubmission,
+              ),
             ),
             const SizedBox(height: 12),
             Center(

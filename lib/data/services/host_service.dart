@@ -258,10 +258,10 @@ class HostService {
       final payload = <String, dynamic>{
         'first_name': firstName.trim(),
         'last_name': lastName.trim(),
-        'dob': formattedDob.isNotEmpty ? formattedDob : '2000-01-01',
-        'city': city.trim().isNotEmpty ? city.trim() : 'Bengaluru',
-        'bio': bio.trim().isNotEmpty ? bio.trim() : 'AYO Host Partner',
-        'avatar_url': avatarUrl.trim().isNotEmpty ? avatarUrl.trim() : null,
+        if (formattedDob.isNotEmpty) 'dob': formattedDob,
+        if (city.trim().isNotEmpty) 'city': city.trim(),
+        if (bio.trim().isNotEmpty) 'bio': bio.trim(),
+        if (avatarUrl.trim().isNotEmpty) 'avatar_url': avatarUrl.trim(),
       };
 
       if (drivingLicenceNumber != null && drivingLicenceNumber.trim().isNotEmpty) {
@@ -690,6 +690,73 @@ class HostService {
     }
   }
 
+  /// `DELETE /api/v1/vehicles/:id/photos?url=...`
+  /// Physically deletes a vehicle photo from Google Cloud Storage and unlinks it from the vehicle.
+  static Future<bool> deleteVehiclePhoto({
+    required String vehicleId,
+    required String photoUrl,
+    String? category,
+  }) async {
+    try {
+      final cleanUrl = photoUrl.trim();
+      if (cleanUrl.isEmpty) return false;
+
+      final queryParams = <String, dynamic>{'url': cleanUrl};
+      if (category != null && category.isNotEmpty) {
+        queryParams['category'] = category;
+      }
+
+      LoggerService.info('Deleting vehicle photo from cloud: vehicle=$vehicleId url=$cleanUrl');
+      final res = await ApiClient.instance.delete(
+        '/vehicles/$vehicleId/photos',
+        queryParameters: queryParams,
+      );
+
+      final ok = res['ok'] == true || res['success'] == true;
+      if (ok) {
+        ToastService.showSuccess('Photo removed from vehicle and cloud storage');
+      }
+      return ok;
+    } on ApiException catch (e) {
+      if (e.statusCode == 409) {
+        ToastService.showWarning('Cannot delete photos while vehicle has active bookings.');
+      } else {
+        ToastService.showError('Could not delete photo: ${e.message}');
+      }
+      return false;
+    } catch (e) {
+      LoggerService.warning('Failed to delete vehicle photo: $e');
+      return false;
+    }
+  }
+
+  /// `DELETE /api/v1/vehicles/:id/documents/:type`
+  /// Permanently removes vehicle document (RC, INSURANCE, POLLUTION) from storage & database.
+  static Future<bool> deleteVehicleDocument({
+    required String vehicleId,
+    required String type,
+  }) async {
+    try {
+      final cleanType = type.trim().toUpperCase();
+      LoggerService.info('Deleting vehicle document: vehicle=$vehicleId type=$cleanType');
+      final res = await ApiClient.instance.delete(
+        '/vehicles/$vehicleId/documents/$cleanType',
+      );
+
+      final ok = res['ok'] == true || res['success'] == true;
+      if (ok) {
+        ToastService.showSuccess('$cleanType document removed successfully');
+      }
+      return ok;
+    } on ApiException catch (e) {
+      ToastService.showError('Could not delete $type document: ${e.message}');
+      return false;
+    } catch (e) {
+      LoggerService.warning('Failed to delete vehicle document: $e');
+      return false;
+    }
+  }
+
   static Future<Vehicle?> getVehicleById(String vehicleId) async {
     try {
       final response = await ApiClient.instance.get(ApiConfig.vehicleById(vehicleId));
@@ -707,7 +774,8 @@ class HostService {
     try {
       LoggerService.info('Creating listing fee order for vehicle: $vehicleId');
       final response = await ApiClient.instance.post(ApiConfig.vehiclePayListingFee(vehicleId));
-      return ListingFeeOrderResponse.fromJson(response['data'] as Map<String, dynamic>);
+      final data = response['data'] is Map<String, dynamic> ? response['data'] as Map<String, dynamic> : response;
+      return ListingFeeOrderResponse.fromJson(data);
     } catch (e) {
       LoggerService.error('Failed to create listing fee order', error: e);
       rethrow;
@@ -777,10 +845,10 @@ class HostService {
     } catch (e) {
       LoggerService.error('Failed to fetch payments config', error: e);
       return const PaymentsConfig(
-        keyId: 'rzp_test_Tq48KTS6e99UpX',
+        keyId: '',
         currency: 'INR',
-        name: 'AYO Rentals',
-        description: 'Car Rental & Security Deposit Payment',
+        name: 'AYO Host Platform',
+        description: 'Host Listing & Verification Payment',
       );
     }
   }
@@ -805,15 +873,43 @@ class HostService {
           );
         }
         if (code == 'LISTING_FEE_REQUIRED' || e.response?.statusCode == 402) {
-          final payment = err['payment'] as Map<String, dynamic>? ?? {};
-          final orderId = payment['order_id']?.toString() ?? '';
-          var amount = payment['amount'] is int ? payment['amount'] as int : 0;
+          final payment = (err['payment'] is Map ? err['payment'] as Map<String, dynamic> : null) ??
+              (resData['payment'] is Map ? resData['payment'] as Map<String, dynamic> : null) ??
+              {};
+          final listingFeeObj = (err['listing_fee'] is Map ? err['listing_fee'] as Map<String, dynamic> : null) ??
+              (resData['listing_fee'] is Map ? resData['listing_fee'] as Map<String, dynamic> : null) ??
+              {};
+          final rawOrderId = (payment['order_id'] ??
+                  payment['razorpay_order_id'] ??
+                  err['order_id'] ??
+                  resData['order_id'] ??
+                  '')
+              .toString().trim();
+          final orderId = rawOrderId.startsWith('order_') ? rawOrderId : '';
+          var amount = 0;
+          if (payment['amount'] != null) {
+            amount = payment['amount'] is int ? payment['amount'] : int.tryParse(payment['amount'].toString()) ?? 0;
+          } else if (listingFeeObj['amount'] != null) {
+            amount = listingFeeObj['amount'] is int ? listingFeeObj['amount'] : int.tryParse(listingFeeObj['amount'].toString()) ?? 0;
+          } else if (err['amount'] != null) {
+            amount = err['amount'] is int ? err['amount'] : int.tryParse(err['amount'].toString()) ?? 0;
+          }
+          if (amount > 0 && amount < 1000) {
+            amount = amount * 100;
+          }
           if (amount == 0) {
             try {
               amount = (await getListingFee()).feePaise;
-            } catch (_) {}
+            } catch (_) {
+              amount = 0;
+            }
           }
-          final keyId = payment['key_id']?.toString() ?? ApiConfig.defaultRazorpayKey;
+          final keyId = (payment['key_id'] ??
+                  payment['key'] ??
+                  err['key_id'] ??
+                  resData['key_id'] ??
+                  '')
+              .toString();
 
           LoggerService.info('Listing fee required (₹${(amount / 100).toInt()}) with Order ID: $orderId');
           return SubmitVehicleResult(
@@ -822,7 +918,7 @@ class HostService {
             orderId: orderId,
             amountPaise: amount,
             keyId: keyId,
-            message: err['message']?.toString() ?? 'Listing fee required',
+            message: err['message']?.toString() ?? resData['message']?.toString() ?? 'Listing fee required',
           );
         }
       }
@@ -930,11 +1026,11 @@ class HostService {
     } catch (e) {
       LoggerService.error('Failed to fetch support config', error: e);
       return const SupportConfig(
-        whatsapp: '+919999900000',
-        phone: '1800-296-0000',
-        email: 'support@ayo.com',
-        whatsappLink: 'whatsapp://send?phone=+919999900000',
-        telLink: 'tel:+9118002960000',
+        whatsapp: '',
+        phone: '',
+        email: '',
+        whatsappLink: '',
+        telLink: '',
       );
     }
   }

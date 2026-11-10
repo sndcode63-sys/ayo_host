@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/animation_utils.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/cards.dart';
@@ -47,9 +48,10 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
   }
 
   void _showSupportDialog(SupportConfig? support) {
-    final phone = support?.phone.isNotEmpty == true ? support!.phone : '+91 1800-296-0000';
-    final email = support?.email.isNotEmpty == true ? support!.email : 'support@ayo.com';
-    final whatsapp = support?.whatsapp.isNotEmpty == true ? support!.whatsapp : '+91 9999900000';
+    final phone = support?.phone.trim() ?? '';
+    final email = support?.email.trim() ?? '';
+    final whatsapp = support?.whatsapp.trim() ?? '';
+    final hasContacts = phone.isNotEmpty || email.isNotEmpty || whatsapp.isNotEmpty;
 
     showDialog(
       context: context,
@@ -61,21 +63,25 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
           children: [
             Text('Need urgent help during a trip or handover? Contact our dedicated support team:', style: AppText.body.copyWith(fontSize: 12)),
             const SizedBox(height: 12),
-            Row(
-              children: [
-                const Icon(Icons.phone_outlined, size: 16, color: AppColors.primary),
-                const SizedBox(width: 8),
-                Text('Helpline: $phone', style: AppText.body.copyWith(fontSize: 12, fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.email_outlined, size: 16, color: AppColors.primary),
-                const SizedBox(width: 8),
-                Text('Email: $email', style: AppText.body.copyWith(fontSize: 12)),
-              ],
-            ),
+            if (phone.isNotEmpty) ...[
+              Row(
+                children: [
+                  const Icon(Icons.phone_outlined, size: 16, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Text('Helpline: $phone', style: AppText.body.copyWith(fontSize: 12, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+            if (email.isNotEmpty) ...[
+              Row(
+                children: [
+                  const Icon(Icons.email_outlined, size: 16, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Text('Email: $email', style: AppText.body.copyWith(fontSize: 12)),
+                ],
+              ),
+            ],
             if (whatsapp.isNotEmpty) ...[
               const SizedBox(height: 8),
               Row(
@@ -86,6 +92,9 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                 ],
               ),
             ],
+            if (!hasContacts)
+              Text('Support concierge contact details are being retrieved from the server. Check your trip confirmation or app updates.',
+                  style: AppText.body.copyWith(fontSize: 11, color: AppColors.textMuted)),
           ],
         ),
         actions: [
@@ -99,9 +108,11 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
   }
 
   void _showPoliciesDialog(PlatformPolicies? policies) {
-    final freeHours = policies?.cancellationFreeHours ?? 24;
-    final minAge = policies?.minRenterAge ?? 21;
-    final coverageText = policies?.coverageText ?? 'Comprehensive insurance with 24/7 roadside assistance.';
+    final freeHours = policies?.cancellationFreeHours;
+    final minAge = policies?.minRenterAge;
+    final coverageText = policies?.coverageText.isNotEmpty == true
+        ? policies!.coverageText
+        : 'Host and vehicle protection policies are active on the Ayo platform.';
 
     showDialog(
       context: context,
@@ -112,26 +123,30 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(coverageText, style: AppText.body.copyWith(fontSize: 12)),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Icon(Icons.access_time_rounded, size: 16, color: AppColors.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Free Cancellation: Up to $freeHours hours before trip start', style: AppText.body.copyWith(fontSize: 11.5)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.verified_user_outlined, size: 16, color: AppColors.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Minimum Renter Age: $minAge years with valid driving license', style: AppText.body.copyWith(fontSize: 11.5)),
-                ),
-              ],
-            ),
+            if (freeHours != null) ...[
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.access_time_rounded, size: 16, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Free Cancellation: Up to $freeHours hours before trip start', style: AppText.body.copyWith(fontSize: 11.5)),
+                  ),
+                ],
+              ),
+            ],
+            if (minAge != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.verified_user_outlined, size: 16, color: AppColors.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Minimum Renter Age: $minAge years with valid driving license', style: AppText.body.copyWith(fontSize: 11.5)),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
         actions: [
@@ -155,13 +170,13 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
         ? profile!.fullName
         : user?.name?.isNotEmpty == true
             ? user!.name!
-            : 'Host Partner';
+            : (user?.phone.isNotEmpty == true ? user!.phone : '');
 
     final bioText = profile?.bio.isNotEmpty == true
         ? profile!.bio
         : profile?.city.isNotEmpty == true
             ? 'Host · ${profile!.city}'
-            : 'Host Partner';
+            : '';
 
     return SafeArea(
       child: ListView(
@@ -185,70 +200,75 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
           ),
           const SizedBox(height: 16),
           // Host Profile Card -> Navigates to AccountDetailsScreen
-          AppCard(
-            onTap: () =>
-                Navigator.pushNamed(context, AccountDetailsScreen.route),
-            child: Row(
-              children: [
-                Builder(
-                  builder: (context) {
-                    final avatarUrl = profile?.avatarUrl;
-                    final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
-                    return Stack(
-                      children: [
-                        CircleAvatar(
-                          radius: 24,
-                          backgroundColor: AppColors.primarySoft,
-                          backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
-                          child: hasAvatar
-                              ? null
-                              : Text(
-                                  profile?.initials.isNotEmpty == true ? profile!.initials : 'H',
-                                  style: AppText.sectionTitle
-                                      .copyWith(color: AppColors.primary),
-                                ),
-                        ),
-                        const Positioned(
-                          right: 0,
-                          bottom: 0,
-                          child: CircleAvatar(
-                            radius: 8,
-                            backgroundColor: AppColors.primary,
-                            child: Icon(Icons.check_rounded,
-                                size: 10, color: Colors.white),
-                          ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(nameText, style: AppText.sectionTitle.copyWith(fontSize: 15)),
-                      Text(bioText, style: AppText.body.copyWith(fontSize: 10.5)),
-                      const SizedBox(height: 4),
-                      Row(
+          FadeSlideIn(
+            delay: const Duration(milliseconds: 60),
+            child: AppCard(
+              onTap: () =>
+                  Navigator.pushNamed(context, AccountDetailsScreen.route),
+              child: Row(
+                children: [
+                  Builder(
+                    builder: (context) {
+                      final avatarUrl = profile?.avatarUrl;
+                      final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
+                      return Stack(
                         children: [
-                          const Icon(Icons.star_rounded,
-                              size: 13, color: AppColors.warning),
-                          Text(
-                            ' ${profile?.rating?.toStringAsFixed(2) ?? '4.98'} (${profile?.reviewCount ?? 0} reviews)',
-                            style: AppText.body.copyWith(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary),
+                          CircleAvatar(
+                            radius: 24,
+                            backgroundColor: AppColors.primarySoft,
+                            backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
+                            child: hasAvatar
+                                ? null
+                                : Text(
+                                    profile?.initials.isNotEmpty == true ? profile!.initials : 'H',
+                                    style: AppText.sectionTitle
+                                        .copyWith(color: AppColors.primary),
+                                  ),
+                          ),
+                          const Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: CircleAvatar(
+                              radius: 8,
+                              backgroundColor: AppColors.primary,
+                              child: Icon(Icons.check_rounded,
+                                  size: 10, color: Colors.white),
+                            ),
                           ),
                         ],
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                ),
-                const Icon(Icons.edit_outlined,
-                    size: 16, color: AppColors.textMuted),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(nameText, style: AppText.sectionTitle.copyWith(fontSize: 15)),
+                        Text(bioText, style: AppText.body.copyWith(fontSize: 10.5)),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            const Icon(Icons.star_rounded,
+                                size: 13, color: AppColors.warning),
+                            Text(
+                              (profile?.rating != null && (profile?.rating ?? 0) > 0)
+                                  ? ' ${profile!.rating!.toStringAsFixed(2)} (${profile.reviewCount ?? 0} reviews)'
+                                  : ' New Host (No reviews yet)',
+                              style: AppText.body.copyWith(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.edit_outlined,
+                      size: 16, color: AppColors.textMuted),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 10),
@@ -266,7 +286,7 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                           style: AppText.captionCaps
                               .copyWith(color: AppColors.primary)),
                       const SizedBox(height: 3),
-                      Text(profile?.tier ?? 'Superhost',
+                      Text((profile?.tier?.isNotEmpty == true) ? profile!.tier! : 'Host Partner',
                           style: AppText.sectionTitle.copyWith(
                               fontSize: 13, color: AppColors.primary)),
                     ],
@@ -284,7 +304,9 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                       Text('Response rate', style: AppText.captionCaps),
                       const SizedBox(height: 3),
                       Text(
-                        '${profile?.responseRate?.toStringAsFixed(0) ?? '99'}% · Instant',
+                        profile?.responseRate != null
+                            ? '${profile!.responseRate!.toInt()}%'
+                            : 'Pending',
                         style: AppText.sectionTitle.copyWith(fontSize: 13),
                       ),
                     ],
@@ -329,15 +351,6 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                 onTap: () => Navigator.pushNamed(context, NotificationsScreen.route),
               ),
               _MenuItem(
-                icon: Icons.notifications_active_outlined,
-                title: 'Notifications',
-                subtitle: 'Booking, KYC and payout updates',
-                tag: context.watch<NotificationController>().unread > 0
-                    ? '${context.watch<NotificationController>().unread} new'
-                    : null,
-                onTap: () => Navigator.pushNamed(context, NotificationsScreen.route),
-              ),
-              _MenuItem(
                 icon: Icons.insights_rounded,
                 title: 'Listing Performance & Insights',
                 subtitle: 'Circular chart, views, conversion & earnings boost',
@@ -353,7 +366,9 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
               _MenuItem(
                 icon: Icons.account_balance_outlined,
                 title: 'Payout & Bank Settings',
-                subtitle: profile?.payoutMethod ?? 'UPI / Bank Transfer configured',
+                subtitle: (profile?.payoutMethod?.isNotEmpty == true)
+                    ? profile!.payoutMethod!
+                    : 'Not configured',
                 onTap: () => Navigator.pushNamed(context, PayoutSetupScreen.route),
               ),
               _MenuItem(
@@ -374,10 +389,10 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
               _MenuItem(
                 icon: Icons.lock_outline_rounded,
                 title: 'Security & Login',
-                subtitle: 'Firebase Phone OTP & 256-bit Token Encrypted',
+                subtitle: 'Phone OTP & 256-bit Token Encrypted',
                 onTap: () => _showInfoDialog(
                   'Security & Login',
-                  'Your host account is secured with Firebase Phone Authentication and JWT Token Encryption.',
+                  'Your host account is secured with live Phone OTP and JWT token encryption.',
                 ),
               ),
             ],
@@ -424,7 +439,9 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
               _MenuItem(
                 icon: Icons.shield_outlined,
                 title: 'Terms & Host Protection Policy',
-                subtitle: '₹1,00,00,000 Host Liability Protection Policy',
+                subtitle: (dash.platformPolicies?.coverageText.isNotEmpty == true)
+                    ? dash.platformPolicies!.coverageText
+                    : 'Comprehensive Host Protection Policy',
                 onTap: () => _showPoliciesDialog(dash.platformPolicies),
               ),
             ],

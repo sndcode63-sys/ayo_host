@@ -222,7 +222,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 Expanded(
                   child: AppTextField(
                     label: 'Model Name',
-                    hint: 'e.g. Creta, Nexon, Taycan...',
+                    hint: 'e.g. City, Baleno, Creta, Harrier...',
                     controller: _modelController,
                     onChanged: (v) => ob.model = v,
                   ),
@@ -318,10 +318,10 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                   flex: 3,
                   child: AppDropdownField(
                     label: 'Registration State',
-                    value: ob.plateState.isEmpty ? 'KA - Karnataka' : ob.plateState,
-                    hint: 'KA - Karnataka',
+                    value: ob.plateState.isEmpty ? null : ob.plateState,
+                    hint: 'Select State (e.g. DL, MH, KA)',
                     items: OnboardingController.allIndianStates,
-                    onChanged: (v) => ob.plateState = v ?? 'KA - Karnataka',
+                    onChanged: (v) => ob.plateState = v ?? '',
                   ),
                 ),
               ],
@@ -385,7 +385,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
             const SizedBox(height: 14),
             AppTextField(
               label: 'Pickup Address',
-              hint: 'e.g. Flat 101, Indiranagar, Bengaluru, Karnataka',
+              hint: 'e.g. Building number, street, locality, city, state',
               controller: _addressController,
               maxLines: 3,
               prefix: const Icon(Icons.location_on_outlined, size: 17, color: AppColors.primary),
@@ -580,6 +580,10 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 }
                 if (ob.plate.isEmpty) {
                   ToastService.showWarning('Please enter vehicle Registration Plate number (e.g. 05 KL 8821)');
+                  return;
+                }
+                if (ob.plateState.isEmpty) {
+                  ToastService.showWarning('Please select your vehicle Registration State');
                   return;
                 }
                 if (ob.pincode.length != 6) {

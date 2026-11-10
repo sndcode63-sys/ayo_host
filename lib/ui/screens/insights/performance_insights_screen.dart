@@ -21,7 +21,17 @@ class PerformanceInsightsScreen extends StatelessWidget {
 
     final totalVehicles = vehicles.length;
     final activeCount = vehicles.where((v) => v.status == 'ACTIVE' || v.status == 'ON_TRIP').length;
+    final inReviewCount = vehicles.where((v) => v.status.toUpperCase().contains('REVIEW') || v.status.toUpperCase().contains('PENDING')).length;
     final occupancy = totalVehicles > 0 ? (stats?.occupancyPercent ?? ((activeCount / totalVehicles) * 100)) : 0.0;
+    final upcomingCount = dash.upcomingTrips.length;
+    final activeTripsCount = dash.activeTrips.length;
+    final totalTrips = upcomingCount + activeTripsCount;
+
+    // Calculate dynamic weekend price boost based on real vehicles
+    final avgDaily = totalVehicles > 0
+        ? (vehicles.fold<double>(0, (s, v) => s + v.dailyRate) / totalVehicles)
+        : 0.0;
+    final estBoost = (avgDaily * 0.20 * 8).round();
 
     return Scaffold(
       appBar: AppBar(
@@ -33,10 +43,10 @@ class PerformanceInsightsScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(18, 12, 18, 24),
           children: [
-            Text('30-Day Fleet Analytics', style: AppText.captionCaps),
+            Text('Live Fleet Analytics', style: AppText.captionCaps),
             const SizedBox(height: 4),
             Text(
-              'Track listing impressions, booking conversion, and occupancy performance in real time.',
+              'Track live fleet utilization, trips, and occupancy performance from Ayo platform.',
               style: AppText.body.copyWith(fontSize: 11),
             ),
             const SizedBox(height: 18),
@@ -46,7 +56,7 @@ class PerformanceInsightsScreen extends StatelessWidget {
               color: AppColors.primarySoft.withValues(alpha: 0.25),
               child: Column(
                 children: [
-                  Text('OCCUPANCY & CONVERSION RING', style: AppText.captionCaps.copyWith(color: AppColors.primary)),
+                  Text('FLEET UTILIZATION RING', style: AppText.captionCaps.copyWith(color: AppColors.primary)),
                   const SizedBox(height: 16),
                   SizedBox(
                     width: 170,
@@ -58,7 +68,7 @@ class PerformanceInsightsScreen extends StatelessWidget {
                           size: const Size(170, 170),
                           painter: _DoughnutChartPainter(
                             occupancyPercent: totalVehicles > 0 ? (occupancy / 100.0).clamp(0.0, 1.0) : 0.0,
-                            conversionPercent: totalVehicles > 0 ? 0.68 : 0.0,
+                            conversionPercent: totalVehicles > 0 ? (activeCount / totalVehicles).clamp(0.0, 1.0) : 0.0,
                           ),
                         ),
                         Column(
@@ -78,9 +88,9 @@ class PerformanceInsightsScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _ChartLegendItem(color: AppColors.primary, label: 'Occupied Days', value: '${occupancy.toInt()}%'),
-                      const _ChartLegendItem(color: AppColors.success, label: 'Conversion', value: '18.5%'),
-                      _ChartLegendItem(color: AppColors.fieldBorder, label: 'Idle Days', value: '${(100 - occupancy).toInt()}%'),
+                      _ChartLegendItem(color: AppColors.primary, label: 'Active', value: '$activeCount'),
+                      _ChartLegendItem(color: AppColors.warning, label: 'In Review', value: '$inReviewCount'),
+                      _ChartLegendItem(color: AppColors.fieldBorder, label: 'Total', value: '$totalVehicles'),
                     ],
                   ),
                 ],
@@ -96,12 +106,13 @@ class PerformanceInsightsScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.visibility_outlined, size: 20, color: AppColors.primary),
+                        const Icon(Icons.directions_car_filled_rounded, size: 20, color: AppColors.primary),
                         const SizedBox(height: 8),
-                        Text(totalVehicles > 0 ? '${totalVehicles * 370}' : '0', style: AppText.screenTitle.copyWith(fontSize: 22)),
-                        Text('Listing Views', style: AppText.captionCaps.copyWith(fontSize: 9)),
+                        Text('$activeCount / $totalVehicles', style: AppText.screenTitle.copyWith(fontSize: 22)),
+                        Text('Live Active Fleet', style: AppText.captionCaps.copyWith(fontSize: 9)),
                         const SizedBox(height: 4),
-                        Text('↗ +24% vs last month', style: AppText.body.copyWith(fontSize: 9.5, color: AppColors.success)),
+                        Text(totalVehicles > 0 ? '${occupancy.toInt()}% fleet utilization' : 'No vehicles listed',
+                            style: AppText.body.copyWith(fontSize: 9.5, color: AppColors.textSecondary)),
                       ],
                     ),
                   ),
@@ -113,12 +124,13 @@ class PerformanceInsightsScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.touch_app_outlined, size: 20, color: AppColors.success),
+                        const Icon(Icons.calendar_today_rounded, size: 20, color: AppColors.success),
                         const SizedBox(height: 8),
-                        Text(totalVehicles > 0 ? '18.5%' : '0%', style: AppText.screenTitle.copyWith(fontSize: 22)),
-                        Text('Conversion Rate', style: AppText.captionCaps.copyWith(fontSize: 9)),
+                        Text('$totalTrips', style: AppText.screenTitle.copyWith(fontSize: 22)),
+                        Text('Scheduled Bookings', style: AppText.captionCaps.copyWith(fontSize: 9)),
                         const SizedBox(height: 4),
-                        Text('Top 5% Hosts in Area', style: AppText.body.copyWith(fontSize: 9.5, color: AppColors.textSecondary)),
+                        Text('$upcomingCount upcoming · $activeTripsCount active',
+                            style: AppText.body.copyWith(fontSize: 9.5, color: AppColors.textSecondary)),
                       ],
                     ),
                   ),
@@ -196,7 +208,9 @@ class PerformanceInsightsScreen extends StatelessWidget {
                         Text('Pro Host Revenue Tip', style: AppText.sectionTitle.copyWith(fontSize: 12.5)),
                         const SizedBox(height: 2),
                         Text(
-                          'Enabling Weekend Price Boost (+20%) can increase your total monthly earnings by ₹12,000.',
+                          totalVehicles > 0
+                              ? 'Enabling Weekend Price Boost (+20%) can increase your weekend earnings by ₹$estBoost per vehicle.'
+                              : 'List your vehicle and enable Weekend Price Boost (+20%) to optimize weekend rental returns.',
                           style: AppText.body.copyWith(fontSize: 10),
                         ),
                       ],

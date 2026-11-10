@@ -2,7 +2,7 @@ name: ayo_host
 description: "AYO Host mobile application"
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.0+2002
 
 environment:
     sdk: ^3.12.2
@@ -47,6 +47,7 @@ dependencies:
     # Device location (handover + vehicle pickup lat/lng)
     geolocator: ^13.0.2
     geocoding: ^3.0.0
+    flutter_local_notifications: ^22.3.3
 
 
     # Local Notifications
@@ -61,6 +62,7 @@ dev_dependencies:
 flutter:
     uses-material-design: true
 
-    # Add your assets here when needed
-    # assets:
-    #   - assets/images/
+    assets:
+        - assets/
+        - assets/images/
+        - assets/ayo-host-splash.gif

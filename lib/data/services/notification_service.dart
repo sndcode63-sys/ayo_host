@@ -13,7 +13,9 @@ class NotificationPage {
   bool get hasMore => page * limit < total && items.isNotEmpty;
 }
 
-/// Notifications + FCM token endpoints with automatic fallback handling.
+/// Notifications service: loads inbox items and manages read states.
+/// Note: FCM token registration, unread-count, and delete endpoints do not exist on the backend;
+/// those operations are handled entirely on the client side without making failing network calls.
 class NotificationService {
   NotificationService._();
 
@@ -22,31 +24,8 @@ class NotificationService {
     return d is Map<String, dynamic> ? d : res;
   }
 
-  /// `POST /notifications/fcm-token`
-  static Future<void> registerFcmToken(String token, String platform) async {
-    final body = {'fcm_token': token, 'device_platform': platform};
-    final candidates = [
-      ApiConfig.fcmToken,
-      '/host/notifications/fcm-token',
-      '/users/fcm-token',
-    ];
-
-    for (final path in candidates) {
-      try {
-        await ApiClient.instance.post(path, data: body);
-        return;
-      } on ApiException catch (e) {
-        if (e.statusCode == 404 || e.statusCode == 403) {
-          continue;
-        }
-        LoggerService.info('FCM token status (${e.statusCode}) on $path');
-        break;
-      } catch (e) {
-        LoggerService.info('FCM token registration info: $e');
-        break;
-      }
-    }
-  }
+  /// No-op: backend does not support FCM token registration.
+  static Future<void> registerFcmToken(String token, String platform) async {}
 
   /// `GET /notifications/mine` or fallback `GET /notifications`
   static Future<NotificationPage> list({int page = 1, int limit = 20}) async {
@@ -65,7 +44,6 @@ class NotificationService {
         res = await ApiClient.instance.get(path, queryParameters: query);
         break;
       } on ApiException catch (e) {
-        // If 403 (e.g. backend policy not bound) or 404, try next candidate
         if (e.statusCode == 404 || e.statusCode == 403) {
           continue;
         }
@@ -94,47 +72,18 @@ class NotificationService {
     }
   }
 
-  /// `GET /notifications/unread-count`
-  static Future<int> unreadCount() async {
-    Map<String, dynamic>? res;
-    final candidates = [
-      ApiConfig.notificationsUnread,
-      '/notifications/mine/unread-count',
-      '/host/notifications/unread-count',
-      '/users/notifications/unread-count',
-    ];
-
-    for (final path in candidates) {
-      try {
-        res = await ApiClient.instance.get(path);
-        break;
-      } on ApiException catch (e) {
-        if (e.statusCode == 404 || e.statusCode == 403) {
-          continue;
-        }
-        break;
-      } catch (_) {
-        break;
-      }
-    }
-
-    if (res == null) return 0;
-
-    try {
-      final body = _unwrap(res);
-      final v = body['unread_count'] ?? body['count'] ?? body['unread'];
-      return v is num ? v.toInt() : int.tryParse(v?.toString() ?? '') ?? 0;
-    } catch (_) {
-      return 0;
-    }
-  }
+  /// No-op: unread count is calculated locally from loaded notification items.
+  static Future<int> unreadCount() async => 0;
 
   /// `PATCH /notifications/:id/read`
   static Future<void> markRead(String id) async {
+    final cleanId = id.trim();
+    if (cleanId.isEmpty) return;
+
     final candidates = [
-      ApiConfig.notificationRead(id),
-      '/notifications/mine/$id/read',
-      '/host/notifications/$id/read',
+      ApiConfig.notificationRead(cleanId),
+      '/notifications/mine/$cleanId/read',
+      '/host/notifications/$cleanId/read',
     ];
 
     for (final path in candidates) {
@@ -172,6 +121,39 @@ class NotificationService {
       } catch (_) {
         break;
       }
+    }
+  }
+
+  /// `DELETE /notifications/:id`
+  /// Deletes a single notification both from the cloud backend and user tray.
+  static Future<bool> delete(String id) async {
+    final cleanId = id.trim();
+    if (cleanId.isEmpty) return false;
+
+    try {
+      final res = await ApiClient.instance.delete('/notifications/$cleanId');
+      return res['success'] == true || res['deleted'] == true;
+    } on ApiException catch (e) {
+      LoggerService.warning('Failed to delete notification $cleanId: ${e.message}');
+      return false;
+    } catch (e) {
+      LoggerService.warning('Failed to delete notification $cleanId: $e');
+      return false;
+    }
+  }
+
+  /// `DELETE /notifications/clear-all`
+  /// Deletes all notifications for the current host in a single request.
+  static Future<int> clearAll() async {
+    try {
+      final res = await ApiClient.instance.delete('/notifications/clear-all');
+      return (res['deleted_count'] as num?)?.toInt() ?? 0;
+    } on ApiException catch (e) {
+      LoggerService.warning('Failed to clear notifications: ${e.message}');
+      return 0;
+    } catch (e) {
+      LoggerService.warning('Failed to clear notifications: $e');
+      return 0;
     }
   }
 }

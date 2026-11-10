@@ -114,11 +114,18 @@ class HostProfile {
       payoutMethod: json['payout_method']?.toString() ?? json['payoutMethod']?.toString(),
       step: json['step'] is int ? json['step'] : int.tryParse(json['step']?.toString() ?? '0') ?? 0,
       isCompleted: json['is_completed'] ?? json['isCompleted'] ?? false,
-      tier: json['tier']?.toString() ?? 'Superhost',
-      rating: (json['rating'] ?? json['rating_avg'] ?? 4.98).toDouble(),
-      reviewCount: json['reviewCount'] ?? json['rating_count'] ?? 86,
-      responseRate: (json['responseRate'] ?? 99.0).toDouble(),
-      memberSince: json['memberSince']?.toString() ?? '2024',
+      tier: json['tier']?.toString(),
+      rating: (json['rating'] ?? json['rating_avg']) != null
+          ? double.tryParse((json['rating'] ?? json['rating_avg']).toString())
+          : null,
+      reviewCount: (json['reviewCount'] ?? json['rating_count'] ?? json['reviews_count']) != null
+          ? int.tryParse((json['reviewCount'] ?? json['rating_count'] ?? json['reviews_count']).toString())
+          : null,
+      responseRate: json['responseRate'] != null
+          ? double.tryParse(json['responseRate'].toString())
+          : null,
+      memberSince: json['memberSince']?.toString() ??
+          (json['created_at'] != null ? DateTime.tryParse(json['created_at'].toString())?.year.toString() : null),
       drivingLicenceNumber: json['driving_licence_number']?.toString() ??
           json['driving_licence']?.toString() ??
           json['dl_number']?.toString(),
@@ -160,7 +167,7 @@ class Vehicle {
   final String state;
   final String transmission;
   final String bodyType;
-  final int batteryPercent;
+  final int? batteryPercent;
   final String status; // ACTIVE / PENDING_REVIEW / DRAFT / REJECTED
   final String? imageUrl;
   final List<String> photos;
@@ -184,7 +191,7 @@ class Vehicle {
     required this.state,
     required this.transmission,
     required this.bodyType,
-    required this.batteryPercent,
+    this.batteryPercent,
     required this.status,
     required this.dailyRate,
     this.hourlyRate = 0,
@@ -351,7 +358,7 @@ class Vehicle {
     final String bodyTypeStr = (json['body_type'] ?? json['bodyType'] ?? json['type'] ?? 'Sedan')?.toString().trim() ?? 'Sedan';
     final int yearInt = json['year'] is num
         ? (json['year'] as num).toInt()
-        : (int.tryParse(json['year']?.toString() ?? '') ?? 2024);
+        : (int.tryParse(json['year']?.toString() ?? '') ?? DateTime.now().year);
 
     return Vehicle(
       id: json['id'] ?? '',
@@ -363,7 +370,7 @@ class Vehicle {
       state: json['state'] ?? '',
       transmission: json['transmission'] ?? 'Automatic',
       bodyType: bodyTypeStr,
-      batteryPercent: (dev['battery_percentage'] as num?)?.toInt() ?? json['batteryPercent'] ?? 88,
+      batteryPercent: (dev['battery_percentage'] as num?)?.toInt() ?? (json['batteryPercent'] as num?)?.toInt(),
       status: statusStr,
       dailyRate: rate,
       hourlyRate: hRate,
@@ -467,8 +474,8 @@ class Handover {
         vehicleName: json['vehicleName'] ?? json['vehicle'] ?? '',
         guestName: json['guestName'] ?? json['customer_name'] ?? '',
         timeLabel: json['timeLabel'] ?? json['time'] ?? '',
-        location: json['location'] ?? 'Host Location',
-        countdown: json['countdown'] ?? 'Upcoming',
+        location: json['location']?.toString() ?? json['address']?.toString() ?? '',
+        countdown: json['countdown']?.toString() ?? '',
         imageUrl: json['imageUrl'],
       );
 }
@@ -677,8 +684,8 @@ class AuthResponse {
   });
 
   factory AuthResponse.fromJson(Map<String, dynamic> json) => AuthResponse(
-        accessToken: json['access_token'] ?? '',
-        user: User.fromJson(json['user']),
+        accessToken: json['access_token'] ?? json['accessToken'] ?? json['token'] ?? '',
+        user: User.fromJson(json['user'] is Map<String, dynamic> ? json['user'] as Map<String, dynamic> : json),
       );
 }
 
@@ -703,12 +710,12 @@ class User {
 
   factory User.fromJson(Map<String, dynamic> json) => User(
         id: json['id'] ?? '',
-        phone: json['phone'] ?? '',
-        email: json['email'],
+        phone: json['phone'] ?? json['phoneNumber'] ?? json['phone_number'] ?? '',
+        email: json['email'] ?? json['emailAddress'],
         name: json['name'],
-        role: json['role'] ?? '',
+        role: json['role'] ?? 'HOST',
         kycStatus: json['kyc_status'] ?? json['kycStatus'] ?? 'NOT_STARTED',
-        isActive: json['is_active'] ?? json['isActive'] ?? true,
+        isActive: json['is_active'] ?? json['isActive'] ?? (json['status'] == 'ACTIVE'),
       );
 }
 
@@ -871,7 +878,7 @@ class Trip {
         id: json['id'] ?? '',
         status: json['status'] ?? '',
         vehicleId: json['vehicle_id'] ?? json['vehicleId'] ?? '',
-        vehicle: json['vehicle'] ?? json['vehicle_name'] ?? 'Vehicle',
+        vehicle: json['vehicle']?.toString() ?? json['vehicle_name']?.toString() ?? '',
         startTime: DateTime.tryParse(json['start_time'] ?? '') ?? DateTime.now(),
         endTime: DateTime.tryParse(json['end_time'] ?? '') ?? DateTime.now().add(const Duration(days: 1)),
         splitType: json['split_type'] ?? '',
@@ -892,8 +899,8 @@ class Customer {
   });
 
   factory Customer.fromJson(Map<String, dynamic> json) => Customer(
-        name: json['name'] ?? json['first_name'] ?? 'Guest Customer',
-        phone: json['phone'] ?? '',
+        name: json['name']?.toString() ?? json['first_name']?.toString() ?? '',
+        phone: json['phone']?.toString() ?? '',
       );
 }
 
@@ -979,10 +986,10 @@ class PaymentsConfig {
 
   factory PaymentsConfig.fromJson(Map<String, dynamic> json) {
     return PaymentsConfig(
-      keyId: json['key_id']?.toString() ?? 'rzp_test_Tq48KTS6e99UpX',
+      keyId: json['key_id']?.toString() ?? '',
       currency: json['currency']?.toString() ?? 'INR',
-      name: json['name']?.toString() ?? 'AYO Rentals',
-      description: json['description']?.toString() ?? 'Car Rental & Security Deposit Payment',
+      name: json['name']?.toString() ?? 'AYO Host Platform',
+      description: json['description']?.toString() ?? 'Host Listing & Verification Payment',
     );
   }
 }
@@ -1011,14 +1018,56 @@ class ListingFeeOrderResponse {
   });
 
   factory ListingFeeOrderResponse.fromJson(Map<String, dynamic> json) {
+    final orderObj = json['order'] is Map<String, dynamic> ? json['order'] as Map<String, dynamic> : null;
+    final rawOrderId = (json['order_id'] ??
+            json['razorpay_order_id'] ??
+            orderObj?['id'] ??
+            orderObj?['order_id'] ??
+            '')
+        .toString().trim();
+    // In Razorpay, Order IDs strictly begin with 'order_'. Any internal ID must not be passed to Razorpay.
+    final orderId = rawOrderId.startsWith('order_') ? rawOrderId : '';
+
+    final keyId = (json['key_id'] ??
+            json['key'] ??
+            json['razorpay_key_id'] ??
+            json['razorpay_key'] ??
+            '')
+        .toString();
+
+    int rawAmount = 0;
+    if (json['amount_paise'] != null) {
+      rawAmount = json['amount_paise'] is int ? json['amount_paise'] : int.tryParse(json['amount_paise'].toString()) ?? 0;
+    } else if (orderObj?['amount'] != null) {
+      rawAmount = orderObj!['amount'] is int ? orderObj['amount'] : int.tryParse(orderObj['amount'].toString()) ?? 0;
+    } else if (json['amount'] != null) {
+      rawAmount = json['amount'] is int ? json['amount'] : int.tryParse(json['amount'].toString()) ?? 0;
+    } else if (json['listing_fee_paise'] != null) {
+      rawAmount = json['listing_fee_paise'] is int ? json['listing_fee_paise'] : int.tryParse(json['listing_fee_paise'].toString()) ?? 0;
+    } else if (json['listing_fee_inr'] != null) {
+      final inr = json['listing_fee_inr'] is int ? json['listing_fee_inr'] : int.tryParse(json['listing_fee_inr'].toString()) ?? 0;
+      rawAmount = inr * 100;
+    }
+
+    // If amount is small (e.g. 499 INR), convert to paise (49900)
+    if (rawAmount > 0 && rawAmount < 1000) {
+      rawAmount = rawAmount * 100;
+    }
+
+    final isBypassed = json['bypassed'] == true ||
+        json['bypass'] == true ||
+        json['listing_fee_bypass'] == true ||
+        json['status'] == 'BYPASSED' ||
+        json['status'] == 'WAIVED';
+
     return ListingFeeOrderResponse(
-      bypassed: json['bypassed'] ?? false,
+      bypassed: isBypassed,
       message: json['message']?.toString() ?? '',
-      orderId: json['order_id']?.toString() ?? '',
+      orderId: orderId,
       paymentId: json['payment_id']?.toString() ?? '',
-      amount: json['amount'] is int ? json['amount'] : int.tryParse(json['amount']?.toString() ?? '0') ?? 0,
+      amount: rawAmount,
       currency: json['currency']?.toString() ?? 'INR',
-      keyId: json['key_id']?.toString() ?? '',
+      keyId: keyId,
       vehicleId: json['vehicle_id']?.toString() ?? '',
       purpose: json['purpose']?.toString() ?? 'LISTING_FEE',
     );

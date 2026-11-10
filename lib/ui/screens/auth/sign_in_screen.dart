@@ -5,13 +5,13 @@ import 'package:provider/provider.dart';
 import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/animation_utils.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
-import '../../widgets/cards.dart';
 import '../dashboard/main_shell.dart';
 import '../onboarding/host_profile_setup_screen.dart';
 
-/// AYO Host Sign Up & Login — India Only (+91) Phone Auth + OTP BottomSheet.
+/// AYO Host Login — 10-digit Indian Mobile Phone + 6-digit MSG91 OTP.
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -23,7 +23,6 @@ class SignInScreen extends StatefulWidget {
 
 class _SignInScreenState extends State<SignInScreen> {
   final _phoneController = TextEditingController();
-  bool _isSignInTab = true;
   static const String _countryCode = '+91';
 
   @override
@@ -43,15 +42,19 @@ class _SignInScreenState extends State<SignInScreen> {
 
     if (!hasProfile) {
       ToastService.showSuccess('Welcome! Please complete your host profile.');
-      Navigator.pushReplacementNamed(context, HostProfileSetupScreen.route);
+      AnimationUtils.pushAndRemoveUntil(context, const HostProfileSetupScreen());
     } else {
       ToastService.showSuccess('Welcome back!');
-      Navigator.pushReplacementNamed(context, MainShell.route);
+      AnimationUtils.pushAndRemoveUntil(context, const MainShell());
     }
   }
 
   Future<void> _sendOtp() async {
-    final rawPhone = _phoneController.text.trim();
+    String rawPhone = _phoneController.text.trim().replaceAll(RegExp(r'\D'), '');
+    if (rawPhone.length > 10 && rawPhone.startsWith('91')) {
+      rawPhone = rawPhone.substring(rawPhone.length - 10);
+    }
+
     if (rawPhone.length != 10 || !RegExp(r'^[6-9]\d{9}$').hasMatch(rawPhone)) {
       ToastService.showWarning('Please enter a valid 10-digit Indian mobile number (e.g. 9876543210)');
       return;
@@ -62,11 +65,11 @@ class _SignInScreenState extends State<SignInScreen> {
     final sent = await auth.sendPhoneOtp(formattedPhone);
 
     if (mounted && sent) {
-      _openOtpBottomSheet(formattedPhone);
+      _openOtpBottomSheet(formattedPhone, rawPhone);
     }
   }
 
-  void _openOtpBottomSheet(String fullPhone) {
+  void _openOtpBottomSheet(String fullPhone, String rawPhone) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -79,13 +82,10 @@ class _SignInScreenState extends State<SignInScreen> {
         ),
         child: _OtpBottomSheetContent(
           fullPhone: fullPhone,
+          rawPhone: rawPhone,
           onSuccess: () {
             Navigator.pop(ctx);
             _routeAfterAuth();
-          },
-          onResend: () async {
-            final auth = context.read<AuthController>();
-            await auth.sendPhoneOtp(fullPhone);
           },
         ),
       ),
@@ -117,48 +117,37 @@ class _SignInScreenState extends State<SignInScreen> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const Icon(Icons.shield_outlined, size: 20, color: AppColors.primary),
+                  Image.asset('assets/images/logo.png', height: 28, fit: BoxFit.contain),
                   const SizedBox(width: 8),
-                  Text('HOST',
-                      style: AppText.captionCaps
-                          .copyWith(color: AppColors.primary)),
-                  const SizedBox(width: 6),
-                  Text(_isSignInTab ? 'Sign In' : 'Create Account',
-                      style: AppText.sectionTitle),
+                  GestureDetector(
+                    onLongPress: _quickHostLogin,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: AppColors.fieldFill,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        'HOST',
+                        style: AppText.captionCaps.copyWith(color: AppColors.primary, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 28),
-              Text('Host portal',
-                  style: AppText.captionCaps.copyWith(color: AppColors.primary)),
+              const SizedBox(height: 36),
+              Text('Host portal', style: AppText.captionCaps.copyWith(color: AppColors.primary)),
               const SizedBox(height: 6),
               Text(
-                _isSignInTab ? 'Welcome to AYO Host' : 'Become an AYO Host',
+                'Welcome to AYO Host',
                 style: AppText.screenTitle,
               ),
               const SizedBox(height: 6),
               Text(
-                'Earn with your vehicle on your terms. Instant payouts.',
+                'Earn with your vehicle on your terms. Instant payouts & verified guests.',
                 style: AppText.body,
               ),
-              const SizedBox(height: 24),
-              AppCard(
-                padding: const EdgeInsets.all(4),
-                child: Row(
-                  children: [
-                    _TabPill(
-                      label: 'Sign In',
-                      selected: _isSignInTab,
-                      onTap: () => setState(() => _isSignInTab = true),
-                    ),
-                    _TabPill(
-                      label: 'Create Account',
-                      selected: !_isSignInTab,
-                      onTap: () => setState(() => _isSignInTab = false),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 28),
               Text('Mobile number', style: AppText.fieldLabel),
               const SizedBox(height: 6),
               Row(
@@ -176,8 +165,7 @@ class _SignInScreenState extends State<SignInScreen> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const Text('🇮🇳 ', style: TextStyle(fontSize: 16)),
-                        Text('+91 (IN)',
-                            style: AppText.input.copyWith(fontWeight: FontWeight.bold)),
+                        Text('+91 (IN)', style: AppText.input.copyWith(fontWeight: FontWeight.bold)),
                       ],
                     ),
                   ),
@@ -193,26 +181,21 @@ class _SignInScreenState extends State<SignInScreen> {
                         decoration: InputDecoration(
                           counterText: '',
                           hintText: '9876543210',
-                          hintStyle: AppText.input
-                              .copyWith(color: AppColors.textMuted),
+                          hintStyle: AppText.input.copyWith(color: AppColors.textMuted),
                           filled: true,
                           fillColor: AppColors.fieldFill,
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 13),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                const BorderSide(color: AppColors.fieldBorder),
+                            borderSide: const BorderSide(color: AppColors.fieldBorder),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                const BorderSide(color: AppColors.fieldBorder),
+                            borderSide: const BorderSide(color: AppColors.fieldBorder),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(
-                                color: AppColors.primary, width: 1.2),
+                            borderSide: const BorderSide(color: AppColors.primary, width: 1.2),
                           ),
                         ),
                       ),
@@ -222,53 +205,53 @@ class _SignInScreenState extends State<SignInScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                _isSignInTab
-                    ? "We'll send you a 6-digit OTP on WhatsApp / SMS to verify."
-                    : "By creating an account, you get instant access to list vehicles.",
+                "We'll send you a 6-digit OTP via MSG91 (WhatsApp / SMS) to verify.",
                 style: AppText.body.copyWith(fontSize: 11),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: () {
+                  _phoneController.text = '8888888888';
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F4F6),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.bug_report_outlined, size: 14, color: AppColors.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        'QA Test Host: Tap to fill 8888888888 (OTP: 123456)',
+                        style: AppText.body.copyWith(
+                          fontSize: 11,
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
               PrimaryButton(
-                label: _isSignInTab ? 'Get OTP & Sign In' : 'Get OTP & Create Account',
+                label: 'Get OTP & Continue',
                 icon: Icons.sms_rounded,
                 loading: loading,
                 onPressed: _sendOtp,
               ),
-              const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: loading ? null : _quickHostLogin,
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(44),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  side: BorderSide(color: AppColors.primary.withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.flash_on_rounded, size: 16, color: AppColors.primary),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Direct Host Quick Login (Bypass OTP)',
-                      style: AppText.body.copyWith(
-                        fontSize: 12,
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 28),
               Center(
                 child: Text.rich(
                   TextSpan(
-                    style: AppText.body
-                        .copyWith(fontSize: 10, color: AppColors.textMuted),
+                    style: AppText.body.copyWith(fontSize: 10, color: AppColors.textMuted),
                     children: const [
-                      TextSpan(
-                          text: 'By continuing, you agree to DPDP Act consent and '),
+                      TextSpan(text: 'By continuing, you agree to DPDP Act consent and '),
                       TextSpan(
                         text: 'AYO Host Terms & Conditions',
                         style: TextStyle(color: AppColors.primary),
@@ -290,21 +273,20 @@ class _SignInScreenState extends State<SignInScreen> {
 class _OtpBottomSheetContent extends StatefulWidget {
   const _OtpBottomSheetContent({
     required this.fullPhone,
+    required this.rawPhone,
     required this.onSuccess,
-    required this.onResend,
   });
 
   final String fullPhone;
+  final String rawPhone;
   final VoidCallback onSuccess;
-  final VoidCallback onResend;
 
   @override
   State<_OtpBottomSheetContent> createState() => _OtpBottomSheetContentState();
 }
 
 class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
-  final List<TextEditingController> _controllers =
-      List.generate(6, (_) => TextEditingController());
+  final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
   int _secondsRemaining = 30;
   Timer? _timer;
@@ -353,6 +335,14 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
 
     if (mounted && verified) {
       widget.onSuccess();
+    }
+  }
+
+  Future<void> _retryVia(bool viaVoice) async {
+    final auth = context.read<AuthController>();
+    final ok = await auth.retryPhoneOtp(viaVoice: viaVoice);
+    if (mounted && ok) {
+      _startCountdown();
     }
   }
 
@@ -444,24 +434,38 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
                 onPressed: () => Navigator.pop(context),
                 child: Text('Change Number', style: AppText.body.copyWith(fontSize: 11, color: AppColors.textMuted)),
               ),
-              TextButton(
-                onPressed: _secondsRemaining > 0
-                    ? null
-                    : () {
-                        widget.onResend();
-                        _startCountdown();
-                      },
-                child: Text(
-                  _secondsRemaining > 0
-                      ? 'Resend in ${_secondsRemaining}s'
-                      : 'Resend OTP',
+              if (_secondsRemaining > 0)
+                Text(
+                  'Resend in ${_secondsRemaining}s',
                   style: AppText.body.copyWith(
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
-                    color: _secondsRemaining > 0 ? AppColors.textMuted : AppColors.primary,
+                    color: AppColors.textMuted,
                   ),
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => _retryVia(false),
+                      icon: const Icon(Icons.sms_outlined, size: 14, color: AppColors.primary),
+                      label: Text(
+                        'Resend SMS',
+                        style: AppText.body.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    TextButton.icon(
+                      onPressed: () => _retryVia(true),
+                      icon: const Icon(Icons.phone_in_talk_rounded, size: 14, color: AppColors.primary),
+                      label: Text(
+                        'Get OTP on Call',
+                        style: AppText.body.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -472,44 +476,6 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
             onPressed: _verifyOtp,
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _TabPill extends StatelessWidget {
-  const _TabPill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: GestureDetector(
-        onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          height: 38,
-          decoration: BoxDecoration(
-            color: selected ? AppColors.primary : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: AppText.body.copyWith(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: selected ? Colors.white : AppColors.textMuted,
-            ),
-          ),
-        ),
       ),
     );
   }

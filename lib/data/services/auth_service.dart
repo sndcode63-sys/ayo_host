@@ -1,5 +1,9 @@
+import 'package:dio/dio.dart';
+import 'package:firebase_auth/firebase_auth.dart' hide User;
+
 import '../../core/config/api_config.dart';
 import '../../core/services/logger_service.dart';
+import '../../core/services/push_service.dart';
 import '../../core/services/secure_storage_service.dart';
 import '../../core/services/toast_service.dart';
 import '../models/models.dart';
@@ -7,6 +11,177 @@ import 'api_client.dart';
 
 class AuthService {
   AuthService._();
+
+  /// Formats phone to standard E.164 (+91XXXXXXXXXX) accepted by MSG91 & AYO Backend
+  static String formatPhone(String rawPhone) {
+    final clean = rawPhone.replaceAll(RegExp(r'\D'), '');
+    if (clean.length == 10) return '+91$clean';
+    if (clean.length > 10 && clean.startsWith('91')) return '+$clean';
+    if (rawPhone.trim().startsWith('+')) return rawPhone.trim();
+    return '+91$clean';
+  }
+
+  /// 1. Send 6-digit OTP via MSG91 (POST /api/v1/auth/send-otp)
+  static Future<bool> sendOtp({
+    required String phone,
+    String role = 'HOST',
+  }) async {
+    try {
+      final formattedPhone = formatPhone(phone);
+      LoggerService.info('Sending 6-digit OTP to $formattedPhone as $role via MSG91...');
+
+      final response = await ApiClient.instance.post(
+        ApiConfig.authSendOtp,
+        data: {
+          'phone': formattedPhone,
+          'role': role,
+        },
+      );
+
+      final data = response['data'] is Map<String, dynamic>
+          ? response['data'] as Map<String, dynamic>
+          : response;
+
+      final success = data['success'] == true;
+      final msg = data['message']?.toString() ?? 'OTP sent successfully';
+      if (success) {
+        ToastService.showSuccess(msg);
+      }
+      return success;
+    } on DioException catch (e) {
+      final errData = e.response?.data;
+      final err = errData is Map ? (errData['error'] as Map<String, dynamic>?) : null;
+      final code = err?['code']?.toString() ?? '';
+      final msg = err?['message']?.toString() ?? '';
+
+      if (code == 'RATE_LIMITED') {
+        ToastService.showError('Too many OTP requests. Please wait a few minutes before retrying.');
+      } else if (code == 'PHONE_REQUIRED') {
+        ToastService.showError('Please enter a valid 10-digit mobile number.');
+      } else if (code == 'OTP_SEND_FAILED' || msg == 'Invalid request') {
+        ToastService.showError('MSG91 Gateway: Invalid request. Use QA bypass 8888888888 (OTP: 123456).');
+      } else if (msg.isNotEmpty) {
+        ToastService.showError(msg);
+      } else {
+        ToastService.showError('Failed to send OTP. Please check mobile number.');
+      }
+      rethrow;
+    } catch (e) {
+      LoggerService.error('Failed to send OTP via MSG91', error: e);
+      rethrow;
+    }
+  }
+
+  /// 2. Verify 6-digit OTP & Issue Session Token (POST /api/v1/auth/verify-otp)
+  static Future<AuthResponse> verifyOtp({
+    required String phone,
+    required String otp,
+    String role = 'HOST',
+    String? name,
+  }) async {
+    try {
+      final formattedPhone = formatPhone(phone);
+      final fcmToken = await PushService.getOrFetchToken();
+
+      LoggerService.info('Verifying 6-digit OTP for $formattedPhone as $role...');
+      final payload = <String, dynamic>{
+        'phone': formattedPhone,
+        'otp': otp.trim(),
+        'role': role,
+        'consent_accepted': true,
+        if (fcmToken != null && fcmToken.isNotEmpty) 'fcm_token': fcmToken,
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      };
+
+      final response = await ApiClient.instance.post(
+        ApiConfig.authVerifyOtp,
+        data: payload,
+      );
+
+      final data = response['data'] is Map<String, dynamic>
+          ? response['data'] as Map<String, dynamic>
+          : response;
+
+      final authResponse = AuthResponse.fromJson(data);
+
+      await SecureStorageService.saveAccessToken(authResponse.accessToken);
+      await SecureStorageService.saveUserId(authResponse.user.id);
+      await SecureStorageService.saveUserRole(authResponse.user.role);
+
+      LoggerService.info('Host authenticated successfully via OTP: ${authResponse.user.id}');
+      ToastService.showSuccess('Host authenticated successfully');
+
+      return authResponse;
+    } on DioException catch (e) {
+      final errData = e.response?.data;
+      final err = errData is Map ? (errData['error'] as Map<String, dynamic>?) : null;
+      final code = err?['code']?.toString() ?? '';
+      final msg = err?['message']?.toString() ?? '';
+
+      if (code == 'INVALID_OTP') {
+        ToastService.showError('Incorrect OTP. Please check the code and try again.');
+      } else if (code == 'TOO_MANY_ATTEMPTS') {
+        ToastService.showError('Too many incorrect attempts. Please tap Resend OTP to get a new code.');
+      } else if (msg.isNotEmpty) {
+        ToastService.showError(msg);
+      } else {
+        ToastService.showError('OTP verification failed. Please try again.');
+      }
+      rethrow;
+    } catch (e) {
+      LoggerService.error('Failed to verify OTP', error: e);
+      rethrow;
+    }
+  }
+
+  /// 3. Resend / Retry OTP via SMS ('text') or Voice Call ('voice') (POST /api/v1/auth/retry-otp)
+  static Future<bool> retryOtp({
+    required String phone,
+    bool viaVoice = false,
+  }) async {
+    try {
+      final formattedPhone = formatPhone(phone);
+      final channel = viaVoice ? 'voice' : 'text';
+      LoggerService.info('Retrying OTP for $formattedPhone via $channel channel...');
+
+      final response = await ApiClient.instance.post(
+        ApiConfig.authRetryOtp,
+        data: {
+          'phone': formattedPhone,
+          'retry_channel': channel,
+        },
+      );
+
+      final data = response['data'] is Map<String, dynamic>
+          ? response['data'] as Map<String, dynamic>
+          : response;
+
+      final success = data['success'] == true;
+      final msg = data['message']?.toString() ??
+          (viaVoice
+              ? 'Calling you with your 6-digit OTP code...'
+              : 'OTP resent successfully');
+      ToastService.showSuccess(msg);
+      return success;
+    } on DioException catch (e) {
+      final errData = e.response?.data;
+      final err = errData is Map ? (errData['error'] as Map<String, dynamic>?) : null;
+      final code = err?['code']?.toString() ?? '';
+      final msg = err?['message']?.toString() ?? '';
+
+      if (code == 'RATE_LIMITED') {
+        ToastService.showError('Cooldown active. Please wait 30 seconds before retrying.');
+      } else if (msg.isNotEmpty) {
+        ToastService.showError(msg);
+      } else {
+        ToastService.showError('Failed to retry OTP.');
+      }
+      rethrow;
+    } catch (e) {
+      LoggerService.error('Failed to retry OTP', error: e);
+      rethrow;
+    }
+  }
 
   static Future<AuthResponse> exchangeFirebaseToken({
     required String idToken,
@@ -116,8 +291,11 @@ class AuthService {
 
   static Future<void> logout() async {
     try {
-      await SecureStorageService.clearAuthData();
-      LoggerService.info('User logged out successfully');
+      await SecureStorageService.clearAll();
+      try {
+        await FirebaseAuth.instance.signOut();
+      } catch (_) {}
+      LoggerService.info('User logged out & all stored credentials purged successfully');
       ToastService.showInfo('Logged out successfully');
     } catch (e) {
       LoggerService.error('Failed to logout', error: e);

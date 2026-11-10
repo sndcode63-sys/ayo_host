@@ -1,9 +1,11 @@
+import '../../widgets/shimmer_loading.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/animation_utils.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/cards.dart';
@@ -91,8 +93,7 @@ class _FleetScreenState extends State<FleetScreen> {
           ),
           Expanded(
             child: dash.loading && allVehicles.isEmpty
-                ? const Center(
-                    child: CircularProgressIndicator(color: AppColors.primary))
+                ? const FleetShimmer()
                 : RefreshIndicator(
                     color: AppColors.primary,
                     onRefresh: () => context.read<DashboardController>().load(),
@@ -145,7 +146,10 @@ class _FleetScreenState extends State<FleetScreen> {
                                 const SizedBox(height: 12),
                             itemBuilder: (context, index) {
                               final v = filteredVehicles[index];
-                              return _FleetCard(vehicle: v);
+                              return FadeSlideIn(
+                                delay: Duration(milliseconds: 40 * index.clamp(0, 8)),
+                                child: _FleetCard(vehicle: v),
+                              );
                             },
                           ),
                   ),
@@ -169,7 +173,7 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return ScaleOnPress(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -481,7 +485,7 @@ class _VehicleQuickActions extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Text(
-              '${online ? '🟢 Online' : '🔴 Offline'} · ${locked ? '🔒 Locked' : '🔓 Unlocked'} · 🔋 ${vehicle.batteryPercent}%',
+              '${online ? '🟢 Online' : '🔴 Offline'} · ${locked ? '🔒 Locked' : '🔓 Unlocked'}${vehicle.batteryPercent != null ? ' · 🔋 ${vehicle.batteryPercent}%' : ''}',
               style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
             ),
           ),

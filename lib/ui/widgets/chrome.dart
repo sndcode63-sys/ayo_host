@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/animation_utils.dart';
 
 /// Header used by the multi-step onboarding flows:
 /// back arrow, "Step x of y" title, close button + red progress bar.
@@ -94,9 +95,9 @@ class _CircleIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
+    return ScaleOnPress(
       onTap: onTap,
+      scaleFactor: 0.92,
       child: Container(
         width: 38,
         height: 38,
@@ -175,11 +176,11 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = selected ? Colors.white : Colors.white.withValues(alpha: 0.55);
-    return InkWell(
+    return ScaleOnPress(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
+      scaleFactor: 0.94,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+        duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
         decoration: BoxDecoration(
@@ -191,7 +192,7 @@ class _NavItem extends StatelessWidget {
           children: [
             Icon(icon, size: 22, color: color),
             AnimatedSize(
-              duration: const Duration(milliseconds: 200),
+              duration: const Duration(milliseconds: 220),
               curve: Curves.easeOutCubic,
               child: selected
                   ? Padding(

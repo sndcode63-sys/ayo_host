@@ -1,4 +1,5 @@
 import 'package:razorpay_flutter/razorpay_flutter.dart';
+import '../config/api_config.dart';
 import 'logger_service.dart';
 import 'toast_service.dart';
 
@@ -59,25 +60,58 @@ class RazorpayService {
       return;
     }
 
-    final options = {
-      'key': keyId,
-      'amount': amountPaise,
+    // Normalize amount: Razorpay strictly expects paise (1 INR = 100 paise).
+    int finalAmountPaise = amountPaise;
+    if (finalAmountPaise > 0 && finalAmountPaise < 1000) {
+      finalAmountPaise = finalAmountPaise * 100;
+    }
+
+    final trimmedKey = keyId.trim().isNotEmpty ? keyId.trim() : ApiConfig.defaultRazorpayKey;
+    if (trimmedKey.isEmpty) {
+      LoggerService.error('Razorpay keyId is missing. Backend did not supply a valid Razorpay key.');
+      ToastService.showError('Payment gateway key is not configured on the server.');
+      return;
+    }
+    final trimmedOrderId = orderId.trim();
+    // Razorpay native Android SDK strictly requires order_id to start with 'order_'.
+    final isValidOrderId = trimmedOrderId.startsWith('order_');
+
+    // Razorpay Android requires a clean 10-digit phone number without '+' or country codes
+    String? cleanContact;
+    if (contact != null && contact.trim().isNotEmpty) {
+      final digits = contact.replaceAll(RegExp(r'\D'), '');
+      if (digits.length == 10) {
+        cleanContact = digits;
+      } else if (digits.length > 10 && digits.startsWith('91')) {
+        cleanContact = digits.substring(digits.length - 10);
+      } else if (digits.isNotEmpty) {
+        cleanContact = digits;
+      }
+    }
+
+    final options = <String, dynamic>{
+      'key': trimmedKey,
+      'amount': finalAmountPaise,
+      'currency': 'INR',
       'name': name,
       'description': description,
-      'order_id': orderId,
+      'timeout': 180,
+      if (isValidOrderId) 'order_id': trimmedOrderId,
       'prefill': {
-        if (contact != null && contact.isNotEmpty) 'contact': contact,
-        if (email != null && email.isNotEmpty) 'email': email,
+        if (cleanContact != null && cleanContact.isNotEmpty) 'contact': cleanContact,
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
       },
       'theme': {
         'color': '#E50914', // AYO Brand Red
       },
       'external': {
-        'wallets': ['paytm', 'gpay', 'phonepe']
+        'wallets': ['paytm']
       }
     };
 
-    LoggerService.info('Opening Razorpay Checkout for Order $orderId (Amount: ₹${amountPaise / 100})');
+    LoggerService.info(
+      'Opening Razorpay Checkout: Key=$trimmedKey, Amount=₹${finalAmountPaise / 100}, OrderId=${isValidOrderId ? trimmedOrderId : "[standard mode]"}',
+    );
     _razorpay!.open(options);
   }
 

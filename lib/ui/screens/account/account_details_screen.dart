@@ -24,7 +24,7 @@ class AccountDetailsScreen extends StatelessWidget {
         ? profile!.fullName
         : user?.name?.isNotEmpty == true
             ? user!.name!
-            : 'Host Partner';
+            : (user?.phone.isNotEmpty == true ? user!.phone : '');
 
     final emailText = profile?.email?.isNotEmpty == true
         ? profile!.email!
@@ -121,7 +121,9 @@ class AccountDetailsScreen extends StatelessWidget {
                   const SizedBox(height: 10),
                   Text(nameText, style: AppText.screenTitle.copyWith(fontSize: 19)),
                   Text(
-                    'Host Partner · Member since ${profile?.memberSince ?? '2024'}',
+                    (profile?.memberSince?.isNotEmpty == true)
+                        ? 'Host Partner · Member since ${profile!.memberSince}'
+                        : 'Host Partner',
                     style: AppText.body
                         .copyWith(fontSize: 11, color: AppColors.textMuted),
                   ),
@@ -143,21 +145,13 @@ class AccountDetailsScreen extends StatelessWidget {
               rows: [
                 ('Email Address', emailText, 'Primary'),
                 ('Phone Number', phoneText, 'Verified'),
-                ('Bio', (profile?.bio.isNotEmpty == true) ? profile!.bio : 'Host on Ayo platform', null),
+                ('Bio', (profile?.bio.isNotEmpty == true) ? profile!.bio : 'Not provided', null),
               ],
             ),
             _InfoSection(
               title: 'PAYOUT & BILLING',
               rows: [
-                ('Payout Method', profile?.payoutMethod ?? 'UPI / Bank Transfer', 'Configured'),
-                ('Payout Status', 'Direct Deposit', 'Active'),
-              ],
-            ),
-            const _InfoSection(
-              title: 'PREFERENCES & PRIVACY',
-              rows: [
-                ('Platform Status', 'Active Host', 'Enabled'),
-                ('DPDP Compliance', 'Consent Accepted (v1.0)', 'Verified'),
+                ('Payout Method', (profile?.payoutMethod?.isNotEmpty == true) ? profile!.payoutMethod! : 'Not configured', (profile?.payoutMethod?.isNotEmpty == true) ? 'Configured' : 'Pending'),
               ],
             ),
             const SizedBox(height: 16),

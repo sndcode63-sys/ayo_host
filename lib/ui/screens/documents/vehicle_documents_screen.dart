@@ -4,7 +4,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 
-import '../../../core/config/api_config.dart';
 import '../../../core/services/razorpay_service.dart';
 import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
@@ -86,6 +85,41 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
     } finally {
       if (mounted) setState(() => _uploadingDoc = false);
     }
+  }
+
+  void _confirmDeleteDoc(BuildContext context, String vehicleId, String docType) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete $docType Document?'),
+        content: Text(
+          'Are you sure you want to remove this $docType document from Ayo cloud storage?',
+          style: const TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final ok = await context
+                  .read<OnboardingController>()
+                  .deleteDocument(vehicleId: vehicleId, type: docType);
+              if (ok) {
+                ToastService.showSuccess('$docType document deleted from storage');
+              }
+            },
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showUploadOptions(BuildContext context, String docType) {
@@ -195,6 +229,7 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
   Future<void> _submit() async {
     final ob = context.read<OnboardingController>();
     final authCtrl = context.read<AuthController>();
+    final dashCtrl = context.read<DashboardController>();
     final vId = widget.vehicleId ?? ob.createdVehicleId;
 
     if (vId.isEmpty) {
@@ -218,9 +253,29 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
           final ok = await ob.submitVehicleForReview(vId);
           if (ok && mounted) {
             ToastService.showSuccess('Listing fee waived! Vehicle submitted for review.');
-            Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+            await dashCtrl.load();
+            if (mounted) {
+              Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+            }
           }
           return;
+        }
+
+        // Resolve key ID dynamically from backend
+        final resolvedKeyId = feeOrder.keyId.isNotEmpty
+            ? feeOrder.keyId
+            : (dashCtrl.paymentsConfig?.keyId.isNotEmpty == true
+                ? dashCtrl.paymentsConfig!.keyId
+                : '');
+
+        if (resolvedKeyId.isEmpty) {
+          ToastService.showError('Payment gateway key is not configured on the server.');
+          return;
+        }
+
+        var amountPaise = feeOrder.amount > 0 ? feeOrder.amount : fee.amountPaise;
+        if (amountPaise > 0 && amountPaise < 1000) {
+          amountPaise = amountPaise * 100;
         }
 
         // Open Razorpay Checkout Sheet
@@ -235,7 +290,10 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
             );
             if (ok && mounted) {
               ToastService.showSuccess('Listing fee verified! Vehicle submitted for admin review.');
-              Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+              await dashCtrl.load();
+              if (mounted) {
+                Navigator.pushNamedAndRemoveUntil(context, MainShell.route, (r) => false);
+              }
             }
           },
           onFailure: (PaymentFailureResponse res) {
@@ -244,11 +302,11 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
         );
 
         RazorpayService.instance.openCheckout(
-          keyId: feeOrder.keyId.isNotEmpty ? feeOrder.keyId : ApiConfig.defaultRazorpayKey,
-          amountPaise: feeOrder.amount > 0 ? feeOrder.amount : fee.amountPaise,
+          keyId: resolvedKeyId,
+          amountPaise: amountPaise,
           orderId: feeOrder.orderId,
           name: 'AYO Host Platform',
-          description: 'Vehicle Listing & Verification Fee (₹${(fee.amountPaise / 100).toInt()})',
+          description: 'Vehicle Listing & Verification Fee (₹${(amountPaise / 100).toInt()})',
           contact: authCtrl.userPhone,
           email: authCtrl.userEmail,
         );
@@ -274,6 +332,7 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
     final ob = context.watch<OnboardingController>();
     final checklist = ob.documentChecklist;
     final docs = checklist?.documents ?? [];
+    final vId = widget.vehicleId ?? ob.createdVehicleId;
 
     return Scaffold(
       body: SafeArea(
@@ -349,6 +408,7 @@ class _VehicleDocumentsScreenState extends State<VehicleDocumentsScreen> {
                   doc: doc,
                   icon: _iconFor(doc.type),
                   onUpload: () => _showUploadOptions(context, doc.type),
+                  onDelete: () => _confirmDeleteDoc(context, vId, doc.type),
                 ),
                 const SizedBox(height: 12),
               ],
@@ -452,11 +512,13 @@ class _DocumentCard extends StatelessWidget {
     required this.doc,
     required this.icon,
     required this.onUpload,
+    this.onDelete,
   });
 
   final VehicleDocument doc;
   final IconData icon;
   final VoidCallback onUpload;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -504,11 +566,20 @@ class _DocumentCard extends StatelessWidget {
                 const Icon(Icons.check_circle_rounded,
                     size: 14, color: AppColors.success),
                 const SizedBox(width: 5),
-                Text('Uploaded / Verified on Ayo Backend',
-                    style: AppText.body.copyWith(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.success)),
+                Expanded(
+                  child: Text('Uploaded / Verified on Ayo Backend',
+                      style: AppText.body.copyWith(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.success)),
+                ),
+                if (onDelete != null)
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded,
+                        size: 18, color: Color(0xFFDC2626)),
+                    tooltip: 'Delete document',
+                    onPressed: onDelete,
+                  ),
               ],
             ),
           ] else ...[

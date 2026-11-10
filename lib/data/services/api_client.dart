@@ -244,7 +244,17 @@ class _ErrorInterceptor extends Interceptor {
         break;
     }
 
-    ToastService.showError(errorMessage);
+    final statusCode = err.response?.statusCode;
+    final errCode = err.response?.data is Map ? (err.response!.data['error']?['code']?.toString() ?? '') : '';
+
+    // Do not show alarming generic error toast on 402 Payment Required or listing fee requirement;
+    // caller UI gracefully opens the payment checkout sheet.
+    final isListingFee = statusCode == 402 ||
+        errCode == 'LISTING_FEE_REQUIRED' ||
+        errorMessage.toLowerCase().contains('listing fee');
+    if (!isListingFee) {
+      ToastService.showError(errorMessage);
+    }
 
     handler.next(
       DioException(

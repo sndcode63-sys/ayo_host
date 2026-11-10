@@ -183,7 +183,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
       'last_name': last,
       'dob': dobText,
       'city': cityText,
-      'bio': _bio.text.trim().isNotEmpty ? _bio.text.trim() : 'Experienced car host on Ayo platform',
+      'bio': _bio.text.trim(),
       'avatar_url': _avatarUrl,
       'driving_licence_number': dlText,
       'driving_licence_front_url': _dlFrontKey,
@@ -353,7 +353,7 @@ class _HostProfileSetupScreenState extends State<HostProfileSetupScreen> {
             const SizedBox(height: 14),
             AppTextField(
               label: 'City & Region',
-              hint: 'Bengaluru, Mumbai, Delhi...',
+              hint: 'Enter your city & region...',
               controller: _city,
               prefix: const Icon(Icons.location_on_outlined,
                   size: 17, color: AppColors.textMuted),

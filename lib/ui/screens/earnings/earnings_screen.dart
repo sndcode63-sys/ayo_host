@@ -1,3 +1,4 @@
+import '../../widgets/shimmer_loading.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -47,7 +48,7 @@ class _EarningsScreenState extends State<EarningsScreen> {
   }
 
   Widget _content(EarningsController c, EarningsStats? s) {
-    if (c.loading && s == null) return const Center(child: CircularProgressIndicator());
+    if (c.loading && s == null) return const EarningsShimmer();
 
     if (c.error != null && s == null) {
       return ListView(

@@ -151,7 +151,14 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
           setState(() => _isSavingPayout = false);
           return;
         }
-        final holderName = name.isNotEmpty ? name : (profile?.fullName ?? 'Host Partner');
+        final holderName = name.trim().isNotEmpty
+            ? name.trim()
+            : ((profile?.fullName.isNotEmpty == true) ? profile!.fullName : (context.read<AuthController>().user?.name ?? ''));
+        if (holderName.isEmpty) {
+          ToastService.showWarning('Please enter the Account Holder Name');
+          setState(() => _isSavingPayout = false);
+          return;
+        }
 
         final res = await HostService.savePayoutMethod(
           payoutMethod: 'BANK',
@@ -289,7 +296,9 @@ class _PayoutSetupScreenState extends State<PayoutSetupScreen> {
                             Text('Verified Bank Account Name',
                                 style: AppText.captionCaps.copyWith(fontSize: 8.5, color: AppColors.success)),
                             Text(
-                              ob.upiRegisteredName ?? profile?.fullName ?? 'Host Partner',
+                              ob.upiRegisteredName?.isNotEmpty == true
+                                  ? ob.upiRegisteredName!
+                                  : (profile?.fullName.isNotEmpty == true ? profile!.fullName : ''),
                               style: AppText.input.copyWith(fontWeight: FontWeight.w600),
                             ),
                           ],

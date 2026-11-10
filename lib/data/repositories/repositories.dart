@@ -7,6 +7,32 @@ import '../services/host_service.dart';
 class AuthRepository {
   AuthRepository([ApiClient? _]);
 
+  /// Send 6-digit OTP via MSG91
+  Future<bool> sendOtp({
+    required String phone,
+    String role = 'HOST',
+  }) async {
+    return await AuthService.sendOtp(phone: phone, role: role);
+  }
+
+  /// Verify 6-digit OTP & get JWT session token
+  Future<AuthResponse> verifyOtp({
+    required String phone,
+    required String otp,
+    String role = 'HOST',
+    String? name,
+  }) async {
+    return await AuthService.verifyOtp(phone: phone, otp: otp, role: role, name: name);
+  }
+
+  /// Retry OTP via SMS ('text') or Voice Call ('voice')
+  Future<bool> retryOtp({
+    required String phone,
+    bool viaVoice = false,
+  }) async {
+    return await AuthService.retryOtp(phone: phone, viaVoice: viaVoice);
+  }
+
   Future<AuthResponse> exchangeFirebaseToken({
     required String idToken,
     String role = 'HOST',
@@ -29,23 +55,7 @@ class AuthRepository {
     return await AuthService.getAuthMe();
   }
 
-  Future<AuthResponse> devMockExchange({
-    required String phone,
-    String role = 'HOST',
-  }) async {
-    try {
-      final mockUid = 'host_${phone.replaceAll(RegExp(r'[^0-9]'), '')}';
-      final mockIdToken = 'mock:$mockUid:$phone';
-      return await exchangeFirebaseToken(
-        idToken: mockIdToken,
-        role: role,
-        consentAccepted: true,
-        consentVersion: '1.0',
-      );
-    } catch (_) {
-      return await quickLoginHost();
-    }
-  }
+
 
   Future<OnboardingStatus> getOnboardingStatus() async {
     return await HostService.getOnboardingStatus();
@@ -82,7 +92,7 @@ class HostRepository {
 
       return DashboardStats(
         greeting: 'Welcome back,',
-        hostName: profile.firstName.isNotEmpty ? profile.firstName : 'Host Partner',
+        hostName: profile.firstName.isNotEmpty ? profile.firstName : '',
         totalRevenue: totalRev,
         revenueChangePercent: earnings?.changePercent ?? 0,
         pendingPayout: earnings?.pendingPayout ?? 0,
@@ -94,7 +104,7 @@ class HostRepository {
     } catch (_) {
       return const DashboardStats(
         greeting: 'Hello,',
-        hostName: 'Host Partner',
+        hostName: '',
         totalRevenue: 0,
         revenueChangePercent: 0,
         pendingPayout: 0,

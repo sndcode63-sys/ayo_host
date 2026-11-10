@@ -8,13 +8,14 @@ import 'package:intl/intl.dart';
 
 import '../core/services/location_service.dart';
 import '../core/services/logger_service.dart';
+import '../core/services/push_service.dart';
+import '../core/services/secure_storage_service.dart';
 import '../core/services/toast_service.dart';
 import '../data/models/models.dart';
 import '../data/repositories/repositories.dart';
 import '../data/services/host_service.dart';
 import '../data/services/notification_service.dart';
 import '../data/services/trips_service.dart';
-import '../core/services/push_service.dart';
 import '../ui/widgets/app_image_view.dart';
 
 class AuthController extends ChangeNotifier {
@@ -27,11 +28,10 @@ class AuthController extends ChangeNotifier {
   bool loading = false;
   String? error;
 
-  String? verificationId;
-  int? resendToken;
+  String? currentPhone;
   bool isCodeSent = false;
 
-  String? get userPhone => user?.phone ?? host?.phone;
+  String? get userPhone => user?.phone ?? host?.phone ?? currentPhone;
   String? get userEmail => user?.email ?? host?.email;
 
   Future<void> checkSession() async {
@@ -46,50 +46,22 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  Future<bool> sendPhoneOtp(String phoneNumber) async {
+  /// 1. Send 6-digit OTP via MSG91 (POST /api/v1/auth/send-otp)
+  Future<bool> sendPhoneOtp(String rawPhone) async {
     loading = true;
     error = null;
     notifyListeners();
 
     try {
-      final completer = Completer<bool>();
+      final clean = rawPhone.replaceAll(RegExp(r'\D'), '');
+      final tenDigit = clean.length > 10 && clean.startsWith('91')
+          ? clean.substring(clean.length - 10)
+          : clean;
 
-      await FirebaseAuth.instance.verifyPhoneNumber(
-        phoneNumber: phoneNumber,
-        timeout: const Duration(seconds: 60),
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          try {
-            final userCredential =
-                await FirebaseAuth.instance.signInWithCredential(credential);
-            final idToken = await userCredential.user?.getIdToken();
-            if (idToken != null) {
-              await exchangeToken(idToken);
-              if (!completer.isCompleted) completer.complete(true);
-            }
-          } catch (e) {
-            error = e.toString();
-            if (!completer.isCompleted) completer.complete(false);
-          }
-        },
-        verificationFailed: (FirebaseAuthException e) {
-          error = e.message ?? 'SMS Verification failed';
-          ToastService.showError(error!);
-          if (!completer.isCompleted) completer.complete(false);
-        },
-        codeSent: (String vId, int? rToken) {
-          verificationId = vId;
-          resendToken = rToken;
-          isCodeSent = true;
-          ToastService.showSuccess('OTP sent successfully to $phoneNumber');
-          if (!completer.isCompleted) completer.complete(true);
-        },
-        codeAutoRetrievalTimeout: (String vId) {
-          verificationId = vId;
-        },
-      );
-
-      final success = await completer.future;
-      return success;
+      currentPhone = tenDigit;
+      final ok = await _repo.sendOtp(phone: tenDigit, role: 'HOST');
+      isCodeSent = ok;
+      return ok;
     } catch (e) {
       error = e.toString();
       ToastService.showError('Failed to send OTP: $e');
@@ -100,9 +72,11 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  Future<bool> verifyOtpCode(String smsCode) async {
-    if (verificationId == null) {
-      error = 'Verification ID missing. Please resend OTP.';
+  /// 2. Verify 6-digit OTP via AYO Backend (POST /api/v1/auth/verify-otp)
+  Future<bool> verifyOtpCode(String smsCode, [String? name]) async {
+    final phone = currentPhone;
+    if (phone == null || phone.isEmpty) {
+      error = 'Mobile number missing. Please enter your mobile number.';
       ToastService.showError(error!);
       return false;
     }
@@ -112,23 +86,46 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final credential = PhoneAuthProvider.credential(
-        verificationId: verificationId!,
-        smsCode: smsCode,
+      final authResponse = await _repo.verifyOtp(
+        phone: phone,
+        otp: smsCode.trim(),
+        role: 'HOST',
+        name: name,
       );
 
-      final userCredential =
-          await FirebaseAuth.instance.signInWithCredential(credential);
-      final idToken = await userCredential.user?.getIdToken();
+      user = authResponse.user;
 
-      if (idToken == null) {
-        throw Exception('Could not retrieve Firebase ID Token');
-      }
+      try {
+        onboardingStatus = await _repo.getOnboardingStatus();
+        host = onboardingStatus?.profile;
+      } catch (_) {}
 
-      return await exchangeToken(idToken);
+      return true;
     } catch (e) {
       error = e.toString();
       ToastService.showError('Invalid OTP code. Please check and retry.');
+      return false;
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// 3. Resend / Retry OTP via SMS ('text') or Voice Call ('voice') (POST /api/v1/auth/retry-otp)
+  Future<bool> retryPhoneOtp({bool viaVoice = false}) async {
+    final phone = currentPhone;
+    if (phone == null || phone.isEmpty) {
+      ToastService.showError('Mobile number missing.');
+      return false;
+    }
+
+    loading = true;
+    notifyListeners();
+
+    try {
+      return await _repo.retryOtp(phone: phone, viaVoice: viaVoice);
+    } catch (e) {
+      ToastService.showError('Retry failed: $e');
       return false;
     } finally {
       loading = false;
@@ -184,42 +181,7 @@ class AuthController extends ChangeNotifier {
     }
   }
 
-  Future<bool> devMockLogin(String phone) async {
-    loading = true;
-    error = null;
-    notifyListeners();
 
-    try {
-      final authResponse = await _repo.devMockExchange(
-        phone: phone,
-        role: 'HOST',
-      );
-
-      user = authResponse.user;
-
-      try {
-        onboardingStatus = await _repo.getOnboardingStatus();
-        host = onboardingStatus?.profile;
-      } catch (_) {}
-
-      return true;
-    } catch (e) {
-      // Fallback to quick-login host
-      try {
-        final authResponse = await _repo.quickLoginHost();
-        user = authResponse.user;
-        onboardingStatus = await _repo.getOnboardingStatus();
-        host = onboardingStatus?.profile;
-        return true;
-      } catch (e2) {
-        error = e2.toString();
-        return false;
-      }
-    } finally {
-      loading = false;
-      notifyListeners();
-    }
-  }
 
   Future<void> signOut() async {
     await _repo.logout();
@@ -230,7 +192,7 @@ class AuthController extends ChangeNotifier {
     host = null;
     onboardingStatus = null;
     isCodeSent = false;
-    verificationId = null;
+    currentPhone = null;
     notifyListeners();
   }
 }
@@ -280,8 +242,8 @@ class DashboardController extends ChangeNotifier {
           LoggerService.error('Fetch support config error', error: e);
           return const SupportConfig(
             whatsapp: '',
-            phone: '1800-296-0000',
-            email: 'support@ayo.com',
+            phone: '',
+            email: '',
             whatsappLink: '',
             telLink: '',
           );
@@ -308,10 +270,10 @@ class DashboardController extends ChangeNotifier {
         HostService.getPaymentsConfig().catchError((e) {
           LoggerService.error('Fetch payments config error', error: e);
           return const PaymentsConfig(
-            keyId: 'rzp_test_Tq48KTS6e99UpX',
+            keyId: '',
             currency: 'INR',
-            name: 'AYO Rentals',
-            description: 'Car Rental & Security Deposit Payment',
+            name: 'AYO Host Platform',
+            description: 'Host Listing & Verification Payment',
           );
         }),
       ]);
@@ -328,12 +290,16 @@ class DashboardController extends ChangeNotifier {
       Handover? nextHandover;
       if (upcomingTrips.isNotEmpty) {
         final firstTrip = upcomingTrips.first;
+        final matchingVehicle = vehicles.where((v) => v.id == firstTrip.vehicleId).firstOrNull;
+        final handoverLoc = (matchingVehicle?.address?.isNotEmpty == true)
+            ? matchingVehicle!.address!
+            : (matchingVehicle?.name ?? firstTrip.vehicle);
         nextHandover = Handover(
           tripId: firstTrip.id,
           vehicleName: firstTrip.vehicle,
           guestName: firstTrip.customer.name,
           timeLabel: DateFormat('MMM dd, hh:mm a').format(firstTrip.startTime),
-          location: 'Host Spot',
+          location: handoverLoc,
           countdown: 'Upcoming',
         );
       }
@@ -345,7 +311,7 @@ class DashboardController extends ChangeNotifier {
         greeting: 'Welcome back,',
         hostName: hostProfile?.firstName.isNotEmpty == true
             ? hostProfile!.firstName
-            : 'Host Partner',
+            : '',
         totalRevenue: totalRevenue,
         revenueChangePercent: 0,
         pendingPayout: 0,
@@ -564,7 +530,7 @@ class OnboardingController extends ChangeNotifier {
   String year = DateTime.now().year.toString();
   String transmission = 'Automatic';
   String plate = '';
-  String plateState = 'KA - Karnataka';
+  String plateState = '';
   String pincode = '';
   double dailyRate = 0; // in Rupees
   double hourlyRate = 0; // in Rupees
@@ -678,22 +644,46 @@ class OnboardingController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void removeFrontPhoto() {
+  Future<void> removeFrontPhoto() async {
+    final oldUrl = frontPhotoUrl;
     frontPhotoUrl = '';
     frontPhotoLocalPath = null;
     notifyListeners();
+    if (createdVehicleId.isNotEmpty && oldUrl.isNotEmpty) {
+      await HostService.deleteVehiclePhoto(
+        vehicleId: createdVehicleId,
+        photoUrl: oldUrl,
+        category: 'COVER',
+      );
+    }
   }
 
-  void removeInteriorPhoto() {
+  Future<void> removeInteriorPhoto() async {
+    final oldUrl = interiorPhotoUrl;
     interiorPhotoUrl = '';
     interiorPhotoLocalPath = null;
     notifyListeners();
+    if (createdVehicleId.isNotEmpty && oldUrl.isNotEmpty) {
+      await HostService.deleteVehiclePhoto(
+        vehicleId: createdVehicleId,
+        photoUrl: oldUrl,
+        category: 'INTERIOR',
+      );
+    }
   }
 
-  void removeRearPhoto() {
+  Future<void> removeRearPhoto() async {
+    final oldUrl = rearPhotoUrl;
     rearPhotoUrl = '';
     rearPhotoLocalPath = null;
     notifyListeners();
+    if (createdVehicleId.isNotEmpty && oldUrl.isNotEmpty) {
+      await HostService.deleteVehiclePhoto(
+        vehicleId: createdVehicleId,
+        photoUrl: oldUrl,
+        category: 'REAR',
+      );
+    }
   }
 
   void addAdditionalPhoto(String url, {String? localPath}) {
@@ -711,13 +701,20 @@ class OnboardingController extends ChangeNotifier {
     }
   }
 
-  void removeAdditionalPhoto(int index) {
+  Future<void> removeAdditionalPhoto(int index) async {
     if (index >= 0 && index < additionalPhotoUrls.length) {
+      final oldUrl = additionalPhotoUrls[index];
       additionalPhotoUrls.removeAt(index);
       if (index < additionalPhotoLocalPaths.length) {
         additionalPhotoLocalPaths.removeAt(index);
       }
       notifyListeners();
+      if (createdVehicleId.isNotEmpty && oldUrl.isNotEmpty) {
+        await HostService.deleteVehiclePhoto(
+          vehicleId: createdVehicleId,
+          photoUrl: oldUrl,
+        );
+      }
     }
   }
 
@@ -739,7 +736,7 @@ class OnboardingController extends ChangeNotifier {
     year = DateTime.now().year.toString();
     transmission = 'Automatic';
     plate = '';
-    plateState = 'KA - Karnataka';
+    plateState = '';
     pincode = '';
     dailyRate = 0;
     hourlyRate = 0;
@@ -1243,6 +1240,29 @@ class OnboardingController extends ChangeNotifier {
     }
   }
 
+  Future<bool> deleteDocument({
+    required String vehicleId,
+    required String type,
+  }) async {
+    saving = true;
+    notifyListeners();
+    try {
+      final ok = await HostService.deleteVehicleDocument(
+        vehicleId: vehicleId,
+        type: type,
+      );
+      uploadedDocUrls.remove(type);
+      await loadDocuments(vehicleId);
+      return ok;
+    } catch (e) {
+      LoggerService.warning('Failed deleting document $type: $e');
+      return false;
+    } finally {
+      saving = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> submitVehicleForReview([String? vId]) async {
     final vehicleId = vId ?? createdVehicleId;
     if (vehicleId.isEmpty) {
@@ -1315,70 +1335,103 @@ class NotificationController extends ChangeNotifier {
   int _page = 1;
   static const _limit = 20;
 
+  final Set<String> _shownNotificationIds = <String>{};
+  bool _initializedShownIds = false;
+
   List<AppNotification> get unreadItems => items.where((e) => !e.isRead).toList();
 
   Future<void> refreshUnread() async {
-    try {
-      final count = await NotificationService.unreadCount();
-      if (count > 0) {
-        unread = count;
-      } else {
-        unread = items.where((e) => !e.isRead).length;
+    unread = items.where((e) => !e.isRead).length;
+    notifyListeners();
+  }
+
+  /// Checks for new unread notifications and triggers system-level push notification banners
+  Future<void> _notifyNewIncoming(List<AppNotification> fetchedItems) async {
+    if (!_initializedShownIds) {
+      _shownNotificationIds.addAll(await SecureStorageService.getShownNotificationIds());
+      _initializedShownIds = true;
+    }
+
+    if (_shownNotificationIds.isEmpty) {
+      final unreadList = fetchedItems.where((e) => !e.isRead).toList();
+      for (final item in fetchedItems) {
+        _shownNotificationIds.add(item.id);
       }
-      notifyListeners();
-    } catch (e) {
-      unread = items.where((e) => !e.isRead).length;
-      notifyListeners();
-      LoggerService.error('Unread count failed', error: e);
+      if (unreadList.isNotEmpty) {
+        final top = unreadList.first;
+        await PushService.showLocalNotification(
+          id: top.id.hashCode,
+          title: top.title,
+          body: top.body,
+          payload: top.type,
+        );
+      }
+      await SecureStorageService.markNotificationsShown(_shownNotificationIds);
+      return;
+    }
+
+    final newlyArrived = <AppNotification>[];
+    for (final item in fetchedItems) {
+      if (!item.isRead && !_shownNotificationIds.contains(item.id)) {
+        newlyArrived.add(item);
+      }
+    }
+
+    if (newlyArrived.isNotEmpty) {
+      for (final n in newlyArrived) {
+        _shownNotificationIds.add(n.id);
+        await PushService.showLocalNotification(
+          id: n.id.hashCode,
+          title: n.title,
+          body: n.body,
+          payload: n.type,
+        );
+      }
+      await SecureStorageService.markNotificationsShown(newlyArrived.map((e) => e.id));
     }
   }
 
-  Future<void> load() async {
-    loading = true;
-    error = null;
-    notifyListeners();
+  Future<void> load({bool silent = false}) async {
+    if (!silent) {
+      loading = true;
+      error = null;
+      notifyListeners();
+    }
     try {
       final page = await NotificationService.list(page: 1, limit: _limit);
-      if (page.items.isNotEmpty) {
-        items = page.items;
-      } else if (items.isEmpty) {
-        // High-fidelity initial host notifications
-        items = [
-          AppNotification(
-            id: 'host_notif_1',
-            title: '🚗 Vehicle Listing Submitted',
-            body: 'Your car details and legal documents have been submitted for admin verification.',
-            type: 'listing',
-            isRead: false,
-            createdAt: DateTime.now().subtract(const Duration(minutes: 15)),
-          ),
-          AppNotification(
-            id: 'host_notif_2',
-            title: '✅ Host KYC & Payout Recorded',
-            body: 'Your UPI & bank payout details have been recorded for instant earnings transfer.',
-            type: 'kyc',
-            isRead: false,
-            createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-          ),
-          AppNotification(
-            id: 'host_notif_3',
-            title: '🎉 Welcome to AYO Host Platform!',
-            body: 'Your host dashboard is active. You will receive real-time push alerts with sound whenever a customer books your vehicle.',
-            type: 'welcome',
-            isRead: true,
-            createdAt: DateTime.now().subtract(const Duration(hours: 5)),
-          ),
-        ];
-      }
+      items = page.items;
       hasMore = page.hasMore;
       _page = 1;
       await refreshUnread();
+      await _notifyNewIncoming(page.items);
     } catch (e) {
-      error = 'Could not load notifications. Pull down to try again.';
+      if (!silent) {
+        error = 'Could not load notifications. Pull down to try again.';
+      }
       LoggerService.error('Load notifications failed', error: e);
     } finally {
-      loading = false;
-      notifyListeners();
+      if (!silent) {
+        loading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  /// Periodic background sync: checks API for new alerts and triggers push notifications
+  Future<void> syncLatestNotifications() async {
+    try {
+      final page = await NotificationService.list(page: 1, limit: 10);
+      if (page.items.isNotEmpty) {
+        final existingIds = items.map((e) => e.id).toSet();
+        final brandNew = page.items.where((e) => !existingIds.contains(e.id)).toList();
+        if (brandNew.isNotEmpty) {
+          items = [...brandNew, ...items];
+          await refreshUnread();
+        }
+        await _notifyNewIncoming(page.items);
+      }
+    } catch (e) {
+      LoggerService.info('Sync latest notifications note: $e');
     }
   }
 
@@ -1388,28 +1441,82 @@ class NotificationController extends ChangeNotifier {
     if (!notif.isRead) {
       unread += 1;
     }
+    _shownNotificationIds.add(notif.id);
+    SecureStorageService.markNotificationsShown([notif.id]);
+    PushService.showLocalNotification(
+      id: notif.id.hashCode,
+      title: notif.title,
+      body: notif.body,
+      payload: notif.type,
+    );
     notifyListeners();
   }
 
-  /// Triggers a test push / in-app notification with alert sound and haptic vibration
+  /// Delete notification from cloud backend and local tray (used by swipe-to-delete)
+  Future<bool> delete(AppNotification n) async {
+    final wasUnread = !n.isRead;
+    items = items.where((e) => e.id != n.id).toList();
+    if (wasUnread && unread > 0) {
+      unread -= 1;
+    }
+    notifyListeners();
+
+    try {
+      final ok = await NotificationService.delete(n.id);
+      return ok;
+    } catch (e) {
+      LoggerService.warning('Failed deleting notification ${n.id}: $e');
+      return false;
+    }
+  }
+
+  /// Delete all notifications from cloud backend and local tray
+  Future<bool> clearAll() async {
+    if (items.isEmpty) return true;
+    final previousItems = List<AppNotification>.from(items);
+    final previousUnread = unread;
+
+    items = [];
+    unread = 0;
+    notifyListeners();
+
+    try {
+      final count = await NotificationService.clearAll();
+      LoggerService.info('Cleared $count notifications from server');
+      return true;
+    } catch (e) {
+      LoggerService.warning('Failed to clear notifications: $e');
+      items = previousItems;
+      unread = previousUnread;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Triggers an in-app notification alert with sound and haptic vibration
   void triggerDemoAlert({
     String? title,
     String? body,
     String type = 'booking',
   }) {
+    if (title == null || title.isEmpty) return;
     PushService.playAlertSound();
     final notif = AppNotification(
-      id: 'demo_${DateTime.now().millisecondsSinceEpoch}',
-      title: title ?? '🔔 New Trip Booking: Hyundai Creta (2 Days · ₹5,600)',
-      body: body ?? 'Customer Rahul Sharma has booked your vehicle. Handover scheduled for today. Tap to view details.',
+      id: 'alert_${DateTime.now().millisecondsSinceEpoch}',
+      title: title,
+      body: body ?? '',
       type: type,
       isRead: false,
       createdAt: DateTime.now(),
     );
     items = [notif, ...items];
     unread += 1;
+    PushService.showLocalNotification(
+      title: notif.title,
+      body: notif.body,
+      payload: type,
+    );
     notifyListeners();
-    ToastService.showSuccess('Notification alert triggered with sound!');
   }
 
   Future<void> loadMore() async {

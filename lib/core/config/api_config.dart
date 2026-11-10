@@ -10,12 +10,15 @@ class ApiConfig {
   static const String gcsPublicBaseUrl = 'https://storage.googleapis.com/ayo-rentals';
 
   // Razorpay Gateway
-  static const String defaultRazorpayKey = 'rzp_test_Tq48KTS6e99UpX';
+  static const String defaultRazorpayKey = '';
 
   // Authentication Endpoints
   static const String authExchange = '/auth/exchange';
   static const String authQuickLogin = '/auth/quick-login';
   static const String authMe = '/auth/me';
+  static const String authSendOtp = '/auth/send-otp';
+  static const String authVerifyOtp = '/auth/verify-otp';
+  static const String authRetryOtp = '/auth/retry-otp';
 
   // User Endpoints
 

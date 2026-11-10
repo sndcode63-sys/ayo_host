@@ -1,9 +1,11 @@
+import '../../widgets/shimmer_loading.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/animation_utils.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/cards.dart';
@@ -181,8 +183,8 @@ class DashboardScreen extends StatelessWidget {
               const SizedBox(height: 8),
               _DetailRow(label: 'Daily Rate', value: '₹${vehicle.dailyRate.toInt()} / day'),
               _DetailRow(label: 'Hourly Rate', value: '₹${vehicle.effectiveHourlyRate.toInt()} / hr'),
-              _DetailRow(label: 'Est. Monthly', value: '₹${(vehicle.dailyRate * 22).toInt()} / month'),
-              _DetailRow(label: 'Pickup Address', value: vehicle.address ?? 'Indiranagar, Bengaluru'),
+              _DetailRow(label: 'Est. Monthly', value: vehicle.dailyRate > 0 ? '₹${(vehicle.dailyRate * 22).toInt()} / mo (est.)' : '₹0 / mo'),
+              _DetailRow(label: 'Pickup Address', value: (vehicle.address?.isNotEmpty == true) ? vehicle.address! : 'Location not specified'),
               _DetailRow(label: 'Listing Status', value: vehicle.status),
               const SizedBox(height: 18),
               Row(
@@ -238,34 +240,54 @@ class DashboardScreen extends StatelessWidget {
         backgroundColor: Colors.transparent,
         floatingActionButton: Padding(
           padding: const EdgeInsets.only(bottom: 70),
-          child: FloatingActionButton(
-            onPressed: () {
+          child: ScaleOnPress(
+            onTap: () {
               context.read<OnboardingController>().resetVehicleDraft();
               Navigator.pushNamed(context, VehicleDetailsScreen.route);
             },
-            backgroundColor: AppColors.primary,
-            shape: const CircleBorder(),
-            child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
+            child: FloatingActionButton(
+              onPressed: () {
+                context.read<OnboardingController>().resetVehicleDraft();
+                Navigator.pushNamed(context, VehicleDetailsScreen.route);
+              },
+              backgroundColor: AppColors.primary,
+              shape: const CircleBorder(),
+              child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
+            ),
           ),
         ),
         body: dash.loading && dash.stats == null
-            ? const Center(
-                child: CircularProgressIndicator(color: AppColors.primary))
+            ? const DashboardShimmer()
             : RefreshIndicator(
                 color: AppColors.primary,
                 onRefresh: () => context.read<DashboardController>().load(),
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(18, 12, 18, 120),
                   children: [
-                    _TopBar(hostProfile: dash.hostProfile),
+                    FadeSlideIn(
+                      delay: Duration.zero,
+                      child: _TopBar(hostProfile: dash.hostProfile),
+                    ),
                     const SizedBox(height: 18),
-                    _Greeting(stats: dash.stats),
+                    FadeSlideIn(
+                      delay: const Duration(milliseconds: 50),
+                      child: _Greeting(stats: dash.stats),
+                    ),
                     const SizedBox(height: 12),
-                    _OnboardingStatusBanner(status: dash.onboardingStatus),
+                    FadeSlideIn(
+                      delay: const Duration(milliseconds: 90),
+                      child: _OnboardingStatusBanner(status: dash.onboardingStatus),
+                    ),
                     const SizedBox(height: 16),
-                    _RevenueCard(stats: dash.stats, money: _money),
+                    FadeSlideIn(
+                      delay: const Duration(milliseconds: 140),
+                      child: _RevenueCard(stats: dash.stats, money: _money),
+                    ),
                     const SizedBox(height: 12),
-                    _StatsRow(stats: dash.stats),
+                    FadeSlideIn(
+                      delay: const Duration(milliseconds: 190),
+                      child: _StatsRow(stats: dash.stats),
+                    ),
                     const SizedBox(height: 20),
                     if (dash.stats?.nextHandover != null) ...[
                       SectionHeader(
@@ -351,7 +373,7 @@ class _TopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final locationText = hostProfile?.city.isNotEmpty == true
         ? hostProfile!.city
-        : 'Indiranagar, Bengaluru (Live Location)';
+        : 'Location not set';
 
     return Row(
       children: [
@@ -360,14 +382,7 @@ class _TopBar extends StatelessWidget {
           children: [
             Row(
               children: [
-                Text(
-                  'AYO',
-                  style: AppText.sectionTitle.copyWith(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 1.2,
-                  ),
-                ),
+                Image.asset('assets/images/logo.png', height: 26, fit: BoxFit.contain),
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

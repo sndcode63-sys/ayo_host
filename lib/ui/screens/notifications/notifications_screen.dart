@@ -1,17 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/services/push_service.dart';
 import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
+import '../../widgets/shimmer_loading.dart';
 import '../documents/vehicle_documents_screen.dart';
 import '../onboarding/payout_setup_screen.dart';
 
-/// Notification inbox: unread highlight, mark one / mark all read, category filters, infinite scroll.
+/// Dynamic Notification inbox: category filters, swipe-to-delete, action navigation, smooth shimmer.
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
@@ -23,7 +22,6 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   final _scroll = ScrollController();
-  String? _fcmToken;
   int _selectedFilterIndex = 0;
 
   static const List<String> _filters = [
@@ -41,10 +39,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         context.read<NotificationController>().loadMore();
       }
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NotificationController>().load();
-      final token = await PushService.getOrFetchToken();
-      if (mounted) setState(() => _fcmToken = token);
     });
   }
 
@@ -54,15 +50,39 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     super.dispose();
   }
 
-  void _copyFcmToken() {
-    final token = _fcmToken ?? PushService.currentToken;
-    if (token != null && token.isNotEmpty) {
-      Clipboard.setData(ClipboardData(text: token));
-      PushService.playAlertSound();
-      ToastService.showSuccess('FCM Device Token copied to clipboard!');
-    } else {
-      ToastService.showInfo('Fetching FCM token... Please try again in a moment');
-    }
+  void _confirmClearAll(NotificationController c) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear All Notifications?'),
+        content: const Text(
+          'Are you sure you want to permanently delete all notifications from your account?',
+          style: TextStyle(fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFDC2626),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final ok = await c.clearAll();
+              if (ok) {
+                ToastService.showSuccess('All notifications cleared successfully');
+              } else {
+                ToastService.showError('Could not clear notifications');
+              }
+            },
+            child: const Text('Clear All'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _onNotificationTap(AppNotification n) {
@@ -74,7 +94,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       Navigator.pushNamed(context, PayoutSetupScreen.route);
     } else if (t.contains('vehicle') || t.contains('listing') || t.contains('car') || t.contains('doc')) {
       Navigator.pushNamed(context, VehicleDocumentsScreen.route);
-    } else if (n.body.length > 80) {
+    } else if (n.body.length > 70) {
       _showNotificationDetail(n);
     }
   }
@@ -125,131 +145,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final c = context.watch<NotificationController>();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Notifications', style: AppText.screenTitle.copyWith(fontSize: 22)),
-        actions: [
-          IconButton(
-            tooltip: 'Trigger Test Push Alert with Sound',
-            icon: const Icon(Icons.notifications_active_rounded, color: AppColors.primary),
-            onPressed: () => c.triggerDemoAlert(),
-          ),
-          TextButton(
-            onPressed: c.unread > 0 ? c.markAllRead : null,
-            child: Text(
-              'Mark all read',
-              style: AppText.body.copyWith(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: c.unread > 0 ? AppColors.primary : AppColors.textMuted,
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-        ],
-      ),
-      body: RefreshIndicator(
-        color: AppColors.primary,
-        onRefresh: c.load,
-        child: _body(c),
-      ),
-    );
-  }
-
-  Widget _buildFcmDemoCard(NotificationController c) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.card,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: AppColors.cardBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: const BoxDecoration(
-                  color: AppColors.success,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'FCM PUSH NOTIFICATIONS: ACTIVE',
-                style: AppText.captionCaps.copyWith(
-                  color: AppColors.success,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const Spacer(),
-              const Icon(Icons.volume_up_rounded, size: 16, color: AppColors.primary),
-              const SizedBox(width: 4),
-              Text(
-                'Sound Alert ON',
-                style: AppText.captionCaps.copyWith(
-                  color: AppColors.primary,
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Host notifications for vehicle bookings, returns, and payout credits with audio alerts.',
-            style: AppText.body.copyWith(fontSize: 11.5, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primary,
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  icon: const Icon(Icons.notifications_active_rounded, size: 16, color: Colors.white),
-                  label: const Text(
-                    'Test Sound Alert',
-                    style: TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.bold),
-                  ),
-                  onPressed: () => c.triggerDemoAlert(),
-                ),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: AppColors.cardBorder),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                icon: const Icon(Icons.copy_rounded, size: 14, color: AppColors.textPrimary),
-                label: const Text(
-                  'Copy FCM Token',
-                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
-                ),
-                onPressed: _copyFcmToken,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterChips(NotificationController c) {
+  Widget _buildFilterChips() {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(bottom: 12),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -304,10 +202,53 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     }).toList();
   }
 
+  @override
+  Widget build(BuildContext context) {
+    final c = context.watch<NotificationController>();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Notifications', style: AppText.screenTitle.copyWith(fontSize: 22)),
+        actions: [
+          if (c.items.isNotEmpty)
+            TextButton(
+              onPressed: () => _confirmClearAll(c),
+              child: const Text(
+                'Clear all',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFFDC2626),
+                ),
+              ),
+            ),
+          TextButton(
+            onPressed: c.unread > 0 ? c.markAllRead : null,
+            child: Text(
+              'Mark read',
+              style: AppText.body.copyWith(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: c.unread > 0 ? AppColors.primary : AppColors.textMuted,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
+      body: RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: c.load,
+        child: _body(c),
+      ),
+    );
+  }
+
   Widget _body(NotificationController c) {
     if (c.loading && c.items.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const NotificationShimmer();
     }
+
     if (c.error != null && c.items.isEmpty) {
       return _Message(
         icon: Icons.cloud_off_rounded,
@@ -323,20 +264,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     if (c.items.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 32),
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 32),
         children: [
-          _buildFcmDemoCard(c),
-          const SizedBox(height: 40),
+          _buildFilterChips(),
+          const SizedBox(height: 60),
           const _Message(
             icon: Icons.notifications_none_rounded,
             title: 'You’re all caught up',
-            body: 'Booking updates, KYC results and payouts will show up here.',
+            body: 'Real-time vehicle booking alerts, KYC status, and payouts will appear here dynamically.',
           ),
         ],
       );
     }
 
-    final totalCount = filtered.length + 2 + (c.loadingMore ? 1 : 0);
+    final totalCount = filtered.length + 1 + (c.loadingMore ? 1 : 0);
 
     return ListView.builder(
       controller: _scroll,
@@ -345,13 +286,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       itemCount: totalCount,
       itemBuilder: (context, i) {
         if (i == 0) {
-          return _buildFcmDemoCard(c);
-        }
-        if (i == 1) {
-          return _buildFilterChips(c);
+          return _buildFilterChips();
         }
 
-        final itemIndex = i - 2;
+        final itemIndex = i - 1;
         if (itemIndex >= filtered.length) {
           return const Padding(
             padding: EdgeInsets.all(16),
@@ -366,11 +304,47 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         }
 
         final n = filtered[itemIndex];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: _NotificationTile(
-            n: n,
-            onTap: () => _onNotificationTap(n),
+
+        // Swipe / Slide-to-Delete Dismissible
+        return Dismissible(
+          key: ValueKey('notif_${n.id}'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.only(right: 20),
+            alignment: Alignment.centerRight,
+            decoration: BoxDecoration(
+              color: const Color(0xFFDC2626),
+              borderRadius: BorderRadius.circular(AppRadius.card),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.delete_outline_rounded, color: Colors.white, size: 22),
+                SizedBox(width: 6),
+                Text(
+                  'Delete',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          onDismissed: (_) async {
+            final ok = await c.delete(n);
+            if (ok) {
+              ToastService.showSuccess('Notification deleted successfully');
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _NotificationTile(
+              n: n,
+              onTap: () => _onNotificationTap(n),
+            ),
           ),
         );
       },
@@ -439,7 +413,8 @@ class _NotificationTile extends StatelessWidget {
                           child: Text(
                             n.title,
                             style: AppText.input.copyWith(
-                                fontWeight: n.isRead ? FontWeight.w600 : FontWeight.w800),
+                              fontWeight: n.isRead ? FontWeight.w600 : FontWeight.w800,
+                            ),
                           ),
                         ),
                         if (!n.isRead)
@@ -448,7 +423,9 @@ class _NotificationTile extends StatelessWidget {
                             height: 9,
                             margin: const EdgeInsets.only(left: 8),
                             decoration: const BoxDecoration(
-                                color: AppColors.primary, shape: BoxShape.circle),
+                              color: AppColors.primary,
+                              shape: BoxShape.circle,
+                            ),
                           ),
                       ],
                     ),
@@ -496,12 +473,11 @@ class _Message extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ListView so pull-to-refresh still works on empty / error states.
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 32),
       children: [
-        SizedBox(height: MediaQuery.of(context).size.height * 0.22),
+        SizedBox(height: MediaQuery.of(context).size.height * 0.18),
         Center(
           child: Container(
             width: 72,
