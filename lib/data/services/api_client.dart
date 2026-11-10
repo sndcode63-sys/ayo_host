@@ -223,11 +223,9 @@ class _ErrorInterceptor extends Interceptor {
       case DioExceptionType.badResponse:
         final statusCode = err.response?.statusCode;
         if (statusCode == 401) {
-          SecureStorageService.clearAuthData();
-          if (errorMessage == 'Something went wrong') {
-            errorMessage = 'Session expired. Please login again.';
-          }
-          ApiClient.onUnauthorized?.call();
+          // Keep session persistent — do NOT wipe secure storage or force logout.
+          // Only manual logout by user purges credentials.
+          LoggerService.warning('401 response for: ${err.requestOptions.uri}');
         } else if (errorMessage == 'Something went wrong') {
           if (statusCode == 403) {
             errorMessage = 'Access denied. You don\'t have permission.';
@@ -252,7 +250,10 @@ class _ErrorInterceptor extends Interceptor {
     final isListingFee = statusCode == 402 ||
         errCode == 'LISTING_FEE_REQUIRED' ||
         errorMessage.toLowerCase().contains('listing fee');
-    if (!isListingFee) {
+    final isUnauthorized = statusCode == 401;
+
+    // Never show alarming toasts for background 401s or 402 listing fees:
+    if (!isListingFee && !isUnauthorized) {
       ToastService.showError(errorMessage);
     }
 

@@ -1,17 +1,16 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/services/toast_service.dart';
-import '../../../core/theme/app_colors.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/animation_utils.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
 import '../dashboard/main_shell.dart';
 import '../onboarding/host_profile_setup_screen.dart';
 
-/// AYO Host Login — 10-digit Indian Mobile Phone + 6-digit MSG91 OTP.
+/// AYO Host Login — Red Theme matching official AYO design with MSG91 OTP Widget.
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
 
@@ -73,9 +72,7 @@ class _SignInScreenState extends State<SignInScreen> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (ctx) => Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(ctx).viewInsets.bottom,
@@ -92,178 +89,258 @@ class _SignInScreenState extends State<SignInScreen> {
     );
   }
 
-  Future<void> _quickHostLogin() async {
-    final auth = context.read<AuthController>();
-    ToastService.showInfo('Logging in with Host Session...');
-
-    final success = await auth.quickLoginHost();
-    if (mounted && success) {
-      _routeAfterAuth();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthController>();
     final loading = auth.loading;
+    final screenHeight = MediaQuery.of(context).size.height;
 
     return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 14),
-              Row(
-                children: [
-                  Image.asset('assets/images/logo.png', height: 28, fit: BoxFit.contain),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onLongPress: _quickHostLogin,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: AppColors.fieldFill,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        'HOST',
-                        style: AppText.captionCaps.copyWith(color: AppColors.primary, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ],
+      resizeToAvoidBottomInset: false,
+      backgroundColor: const Color(0xFFFE001A),
+      body: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: SystemUiOverlayStyle.light.copyWith(
+          statusBarColor: Colors.transparent,
+          systemNavigationBarColor: const Color(0xFFFE001A),
+        ),
+        child: Stack(
+          children: [
+            // 1. Bottom Graphic (City skyline, white car, red motorcycle & curved red road)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                child: Image.asset(
+                  'assets/images/auth_city_cars_cropped.png',
+                  width: double.infinity,
+                  fit: BoxFit.fitWidth,
+                  alignment: Alignment.bottomCenter,
+                ),
               ),
-              const SizedBox(height: 36),
-              Text('Host portal', style: AppText.captionCaps.copyWith(color: AppColors.primary)),
-              const SizedBox(height: 6),
-              Text(
-                'Welcome to AYO Host',
-                style: AppText.screenTitle,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Earn with your vehicle on your terms. Instant payouts & verified guests.',
-                style: AppText.body,
-              ),
-              const SizedBox(height: 28),
-              Text('Mobile number', style: AppText.fieldLabel),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Container(
-                    height: 48,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: AppColors.fieldFill,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.fieldBorder),
-                    ),
-                    alignment: Alignment.center,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text('🇮🇳 ', style: TextStyle(fontSize: 16)),
-                        Text('+91 (IN)', style: AppText.input.copyWith(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: SizedBox(
-                      height: 48,
-                      child: TextField(
-                        controller: _phoneController,
-                        keyboardType: TextInputType.phone,
-                        maxLength: 10,
-                        style: AppText.input,
-                        decoration: InputDecoration(
-                          counterText: '',
-                          hintText: '9876543210',
-                          hintStyle: AppText.input.copyWith(color: AppColors.textMuted),
-                          filled: true,
-                          fillColor: AppColors.fieldFill,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppColors.fieldBorder),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppColors.fieldBorder),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppColors.primary, width: 1.2),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                "We'll send you a 6-digit OTP via MSG91 (WhatsApp / SMS) to verify.",
-                style: AppText.body.copyWith(fontSize: 11),
-              ),
-              const SizedBox(height: 12),
-              InkWell(
-                onTap: () {
-                  _phoneController.text = '8888888888';
-                },
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
+            ),
+
+            // 2. Foreground Form & Content
+            SafeArea(
+              child: SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: screenHeight - 60),
+                  child: Column(
                     children: [
-                      const Icon(Icons.bug_report_outlined, size: 14, color: AppColors.primary),
-                      const SizedBox(width: 6),
-                      Text(
-                        'QA Test Host: Tap to fill 8888888888 (OTP: 123456)',
-                        style: AppText.body.copyWith(
-                          fontSize: 11,
-                          color: AppColors.textPrimary,
-                          fontWeight: FontWeight.w600,
+                      const SizedBox(height: 38),
+
+                      // AYO Brand Logo Card
+                      Container(
+                        width: 78,
+                        height: 78,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(22),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.12),
+                              blurRadius: 18,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          fit: BoxFit.cover,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              PrimaryButton(
-                label: 'Get OTP & Continue',
-                icon: Icons.sms_rounded,
-                loading: loading,
-                onPressed: _sendOtp,
-              ),
-              const SizedBox(height: 28),
-              Center(
-                child: Text.rich(
-                  TextSpan(
-                    style: AppText.body.copyWith(fontSize: 10, color: AppColors.textMuted),
-                    children: const [
-                      TextSpan(text: 'By continuing, you agree to DPDP Act consent and '),
-                      TextSpan(
-                        text: 'AYO Host Terms & Conditions',
-                        style: TextStyle(color: AppColors.primary),
+                      const SizedBox(height: 12),
+
+                      // Tagline
+                      const Text(
+                        'Bike & Car Rental',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.2,
+                        ),
                       ),
+                      const SizedBox(height: 24),
+
+                      // Title
+                      const Text(
+                        'Login',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 32,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+
+                      // Subtitle
+                      Text(
+                        'Enter your mobile number to continue',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.9),
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+
+                      // White Form Card
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(28),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.15),
+                              blurRadius: 26,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Mobile Number Input with Indian Flag
+                            Container(
+                              height: 54,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF4F5F7),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Row(
+                                children: [
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: const [
+                                        Text('🇮🇳', style: TextStyle(fontSize: 18)),
+                                        SizedBox(width: 6),
+                                        Text(
+                                          '+91',
+                                          style: TextStyle(
+                                            fontSize: 15,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF1E2022),
+                                          ),
+                                        ),
+                                        SizedBox(width: 8),
+                                        SizedBox(
+                                          height: 24,
+                                          child: VerticalDivider(
+                                            color: Color(0xFFDCDFE4),
+                                            width: 1,
+                                            thickness: 1,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _phoneController,
+                                      keyboardType: TextInputType.phone,
+                                      maxLength: 10,
+                                      style: const TextStyle(
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF1E2022),
+                                      ),
+                                      decoration: const InputDecoration(
+                                        counterText: '',
+                                        hintText: 'Enter mobile number',
+                                        hintStyle: TextStyle(
+                                          fontSize: 14,
+                                          color: Color(0xFF9EA3AE),
+                                          fontWeight: FontWeight.normal,
+                                        ),
+                                        border: InputBorder.none,
+                                        contentPadding: EdgeInsets.symmetric(horizontal: 8, vertical: 16),
+                                      ),
+                                      onSubmitted: (_) {
+                                        if (!loading) _sendOtp();
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 18),
+
+                            // Send OTP Pill Button
+                            SizedBox(
+                              width: double.infinity,
+                              height: 52,
+                              child: ElevatedButton(
+                                onPressed: loading ? null : _sendOtp,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFE001A),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(26),
+                                  ),
+                                ),
+                                child: loading
+                                    ? const SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2.2,
+                                        ),
+                                      )
+                                    : Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: const [
+                                          Text(
+                                            'Send OTP',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
+                                          SizedBox(width: 8),
+                                          Icon(Icons.arrow_forward_rounded, size: 20),
+                                        ],
+                                      ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+
+                      // Terms and Conditions text
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 32),
+                        child: Text(
+                          'By continuing, you agree to our Terms & Conditions &\nPrivacy Policy',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.9),
+                            fontSize: 11.5,
+                            height: 1.45,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ),
+
+                      // Spacer ensuring bottom car graphic is never covered by the card
+                      const SizedBox(height: 240),
                     ],
                   ),
-                  textAlign: TextAlign.center,
                 ),
               ),
-              const SizedBox(height: 24),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -286,15 +363,45 @@ class _OtpBottomSheetContent extends StatefulWidget {
 }
 
 class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
-  final List<TextEditingController> _controllers = List.generate(6, (_) => TextEditingController());
-  final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
+  final TextEditingController _masterOtpController = TextEditingController();
+  final FocusNode _masterFocusNode = FocusNode();
   int _secondsRemaining = 30;
   Timer? _timer;
+  String? _detectedClipboardOtp;
 
   @override
   void initState() {
     super.initState();
     _startCountdown();
+    _checkClipboardForOtp();
+
+    // Request autofocus after sheet opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _masterFocusNode.requestFocus();
+    });
+  }
+
+  Future<void> _checkClipboardForOtp() async {
+    try {
+      final data = await Clipboard.getData(Clipboard.kTextPlain);
+      final text = data?.text?.trim() ?? '';
+      final match = RegExp(r'\b\d{6}\b').firstMatch(text);
+      if (match != null && mounted) {
+        setState(() {
+          _detectedClipboardOtp = match.group(0);
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _applyOtp(String code) {
+    final digits = code.replaceAll(RegExp(r'\D'), '');
+    if (digits.length >= 6) {
+      final valid6 = digits.substring(0, 6);
+      _masterOtpController.text = valid6;
+      setState(() {});
+      _verifyOtp();
+    }
   }
 
   void _startCountdown() {
@@ -312,19 +419,15 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
   @override
   void dispose() {
     _timer?.cancel();
-    for (final c in _controllers) {
-      c.dispose();
-    }
-    for (final fn in _focusNodes) {
-      fn.dispose();
-    }
+    _masterOtpController.dispose();
+    _masterFocusNode.dispose();
     super.dispose();
   }
 
-  String get _otpCode => _controllers.map((c) => c.text).join();
+  String get _otpCode => _masterOtpController.text.trim();
 
   Future<void> _verifyOtp() async {
-    final code = _otpCode.trim();
+    final code = _otpCode;
     if (code.length < 6) {
       ToastService.showWarning('Please enter full 6-digit OTP code');
       return;
@@ -334,6 +437,9 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
     final verified = await auth.verifyOtpCode(code);
 
     if (mounted && verified) {
+      try {
+        TextInput.finishAutofillContext();
+      } catch (_) {}
       widget.onSuccess();
     }
   }
@@ -349,131 +455,254 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
   @override
   Widget build(BuildContext context) {
     final loading = context.watch<AuthController>().loading;
+    final otpText = _masterOtpController.text;
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(22, 16, 22, 28),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
         children: [
-          Center(
-            child: Container(
-              width: 38,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.fieldBorder,
-                borderRadius: BorderRadius.circular(2),
+          // Background Cars Illustration at the Bottom of OTP Sheet
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: -20,
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.22,
+                child: Image.asset(
+                  'assets/images/auth_city_cars_cropped.png',
+                  width: double.infinity,
+                  fit: BoxFit.fitWidth,
+                  alignment: Alignment.bottomCenter,
+                ),
               ),
             ),
           ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              const Icon(Icons.mark_chat_read_rounded, color: AppColors.primary, size: 22),
-              const SizedBox(width: 8),
-              Text('OTP Verification', style: AppText.screenTitle.copyWith(fontSize: 18)),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Enter 6-digit code sent to ${widget.fullPhone}',
-            style: AppText.body.copyWith(fontSize: 11),
-          ),
-          const SizedBox(height: 20),
-          // 6 PIN Input Boxes
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: List.generate(6, (index) {
-              return SizedBox(
-                width: 44,
-                height: 52,
-                child: TextField(
-                  controller: _controllers[index],
-                  focusNode: _focusNodes[index],
-                  keyboardType: TextInputType.number,
-                  textAlign: TextAlign.center,
-                  maxLength: 1,
-                  style: AppText.screenTitle.copyWith(fontSize: 20, color: AppColors.primary),
-                  decoration: InputDecoration(
-                    counterText: '',
-                    filled: true,
-                    fillColor: AppColors.fieldFill,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppColors.fieldBorder),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppColors.fieldBorder),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-                    ),
-                  ),
-                  onChanged: (val) {
-                    if (val.isNotEmpty && index < 5) {
-                      _focusNodes[index + 1].requestFocus();
-                    } else if (val.isEmpty && index > 0) {
-                      _focusNodes[index - 1].requestFocus();
-                    }
-                    if (_otpCode.length == 6) {
-                      _verifyOtp();
-                    }
-                  },
-                ),
-              );
-            }),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text('Change Number', style: AppText.body.copyWith(fontSize: 11, color: AppColors.textMuted)),
-              ),
-              if (_secondsRemaining > 0)
-                Text(
-                  'Resend in ${_secondsRemaining}s',
-                  style: AppText.body.copyWith(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textMuted,
-                  ),
-                )
-              else
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextButton.icon(
-                      onPressed: () => _retryVia(false),
-                      icon: const Icon(Icons.sms_outlined, size: 14, color: AppColors.primary),
-                      label: Text(
-                        'Resend SMS',
-                        style: AppText.body.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+
+          // Main OTP Content
+          AutofillGroup(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFDCDFE4),
+                        borderRadius: BorderRadius.circular(2),
                       ),
                     ),
-                    const SizedBox(width: 4),
-                    TextButton.icon(
-                      onPressed: () => _retryVia(true),
-                      icon: const Icon(Icons.phone_in_talk_rounded, size: 14, color: AppColors.primary),
-                      label: Text(
-                        'Get OTP on Call',
-                        style: AppText.body.copyWith(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: 18),
+
+                  Row(
+                    children: const [
+                      Icon(Icons.mark_chat_read_rounded, color: Color(0xFFFE001A), size: 22),
+                      SizedBox(width: 8),
+                      Text(
+                        'OTP Verification',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1E2022),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Enter 6-digit code sent to ${widget.fullPhone}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.black.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+
+                  // 6 PIN Input Boxes with native SMS Autofill & Paste support
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      // 1. Visual 6 PIN Boxes
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: List.generate(6, (index) {
+                          final hasChar = index < otpText.length;
+                          final isFocused = _masterFocusNode.hasFocus &&
+                              (index == otpText.length || (index == 5 && otpText.length == 6));
+                          final char = hasChar ? otpText[index] : '';
+
+                          return Container(
+                            width: 44,
+                            height: 52,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF4F5F7),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isFocused
+                                    ? const Color(0xFFFE001A)
+                                    : (hasChar
+                                        ? const Color(0xFFFE001A).withValues(alpha: 0.5)
+                                        : const Color(0xFFE2E4E8)),
+                                width: isFocused ? 2.0 : 1.0,
+                              ),
+                            ),
+                            child: Text(
+                              char,
+                              style: const TextStyle(
+                                fontSize: 22,
+                                color: Color(0xFFFE001A),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          );
+                        }),
+                      ),
+
+                      // 2. Invisible master input field for keyboard, paste, and Android SMS autofill
+                      Positioned.fill(
+                        child: Opacity(
+                          opacity: 0.0,
+                          child: TextField(
+                            controller: _masterOtpController,
+                            focusNode: _masterFocusNode,
+                            keyboardType: TextInputType.number,
+                            maxLength: 6,
+                            autofillHints: const [AutofillHints.oneTimeCode],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(6),
+                            ],
+                            decoration: const InputDecoration(
+                              counterText: '',
+                              border: InputBorder.none,
+                            ),
+                            onChanged: (val) {
+                              setState(() {});
+                              if (val.trim().length == 6) {
+                                _verifyOtp();
+                              }
+                            },
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Quick Auto-fill button if OTP is detected in clipboard
+                  if (_detectedClipboardOtp != null && otpText.length < 6) ...[
+                    const SizedBox(height: 12),
+                    Center(
+                      child: InkWell(
+                        onTap: () => _applyOtp(_detectedClipboardOtp!),
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFE001A).withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFFFE001A).withValues(alpha: 0.3),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.flash_on_rounded, size: 16, color: Color(0xFFFE001A)),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Auto-fill OTP from SMS: $_detectedClipboardOtp',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFFFE001A),
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ],
-                ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          PrimaryButton(
-            label: 'Verify OTP & Continue',
-            icon: Icons.check_circle_rounded,
-            loading: loading,
-            onPressed: _verifyOtp,
+
+                  const SizedBox(height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text(
+                          'Change Number',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF757575),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      if (_secondsRemaining > 0)
+                        Text(
+                          'Resend in ${_secondsRemaining}s',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF757575),
+                          ),
+                        )
+                      else
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            TextButton.icon(
+                              onPressed: () => _retryVia(false),
+                              icon: const Icon(Icons.sms_outlined, size: 14, color: Color(0xFFFE001A)),
+                              label: const Text(
+                                'Resend SMS',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFFE001A),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            TextButton.icon(
+                              onPressed: () => _retryVia(true),
+                              icon: const Icon(Icons.phone_in_talk_rounded, size: 14, color: Color(0xFFFE001A)),
+                              label: const Text(
+                                'Get OTP on Call',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFFE001A),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+
+                  PrimaryButton(
+                    label: 'Verify OTP & Continue',
+                    icon: Icons.check_circle_rounded,
+                    loading: loading,
+                    onPressed: _verifyOtp,
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),

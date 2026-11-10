@@ -625,9 +625,9 @@ class OnboardingController extends ChangeNotifier {
   }
 
   double get effectiveHourlyRate =>
-      hourlyRate > 0 ? hourlyRate : (dailyRate > 0 ? (dailyRate / 10).roundToDouble() : 299);
+      hourlyRate > 0 ? hourlyRate : (dailyRate > 0 ? (dailyRate / 10).roundToDouble() : 0);
 
-  double get estimatedHourlyTrip => effectiveHourlyRate * 3;
+  double get estimatedHourlyTrip => effectiveHourlyRate > 0 ? effectiveHourlyRate * 3 : 0;
 
   void setFrontPhoto(String url) {
     frontPhotoUrl = url.trim();

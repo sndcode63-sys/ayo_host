@@ -219,7 +219,6 @@ class Vehicle {
 
   double get effectiveHourlyRate {
     if (hourlyRate > 0) return hourlyRate;
-    if (dailyRate > 0) return (dailyRate / 10).roundToDouble();
     return 0;
   }
 
@@ -259,9 +258,6 @@ class Vehicle {
       }
     } else if (json['hourlyRate'] != null) {
       hRate = (json['hourlyRate'] as num).toDouble();
-    }
-    if (hRate <= 0 && rate > 0) {
-      hRate = (rate / 10).roundToDouble();
     }
 
     final String vId = json['id']?.toString() ?? '';

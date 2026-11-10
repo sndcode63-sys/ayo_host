@@ -98,20 +98,24 @@ class _SplashScreenState extends State<SplashScreen>
       if (!isAuth) {
         targetRoute = SignInScreen.route;
       } else {
+        // User has active session — keep persistent, NEVER auto-logout
         try {
-          await context.read<AuthController>().checkSession();
+          final auth = context.read<AuthController>();
+          await auth.checkSession();
           if (!mounted) return;
 
-          final status = await HostService.getOnboardingStatus();
+          final status = auth.onboardingStatus ?? await HostService.getOnboardingStatus();
           if (!mounted) return;
 
           final hasProfile = status.profileCompleted ||
-              (status.profile != null && status.profile!.firstName.isNotEmpty);
+              (status.profile != null && status.profile!.firstName.isNotEmpty) ||
+              (auth.user?.name != null && auth.user!.name!.isNotEmpty);
 
           targetRoute =
-          hasProfile ? MainShell.route : HostProfileSetupScreen.route;
+              hasProfile ? MainShell.route : HostProfileSetupScreen.route;
         } catch (_) {
-          targetRoute = SignInScreen.route;
+          // If offline or network glitch on cold start, keep user logged in on MainShell
+          targetRoute = MainShell.route;
         }
       }
     } catch (_) {
@@ -429,8 +433,6 @@ class _AyoSplashPainter extends CustomPainter {
           ..blendMode = BlendMode.screen,
       );
     }
-
-    canvas.restore();
   }
 
   // ───────── drawing primitives ─────────

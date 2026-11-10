@@ -449,7 +449,11 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                         const SizedBox(height: 2),
                         Text(
                           ob.hourlyRentals
-                              ? '₹${ob.effectiveHourlyRate.toInt()}/hr · 3 hr minimum'
+                              ? (ob.effectiveHourlyRate > 0
+                                  ? '₹${ob.effectiveHourlyRate.toInt()}/hr · 3 hr minimum'
+                                  : (ob.dailyRate > 0
+                                      ? '₹${(ob.dailyRate / 10).round()}/hr · 3 hr minimum'
+                                      : 'Calculated from daily rate · 3 hr minimum'))
                               : 'Enable hourly bookings alongside daily rentals',
                           style: AppText.body.copyWith(
                             fontSize: 11,
@@ -486,8 +490,15 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                                 style: AppText.captionCaps.copyWith(color: AppColors.primary)),
                             const SizedBox(height: 3),
                             Text(
-                              '₹${ob.effectiveHourlyRate.toInt()} / hr',
-                              style: AppText.screenTitle.copyWith(fontSize: 20, color: AppColors.primary),
+                              ob.effectiveHourlyRate > 0
+                                  ? '₹${ob.effectiveHourlyRate.toInt()} / hr'
+                                  : (ob.dailyRate > 0
+                                      ? '₹${(ob.dailyRate / 10).round()} / hr'
+                                      : 'Set daily rate above'),
+                              style: AppText.screenTitle.copyWith(
+                                fontSize: ob.effectiveHourlyRate > 0 || ob.dailyRate > 0 ? 20 : 15,
+                                color: AppColors.primary,
+                              ),
                             ),
                           ],
                         ),
@@ -509,11 +520,13 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Minimum trip earnings: ₹${(ob.effectiveHourlyRate * 3).toInt()} (calculated in Indian Rupees ₹)',
-                      style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
-                    ),
+                    if (ob.effectiveHourlyRate > 0 || ob.dailyRate > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Minimum trip earnings: ₹${((ob.effectiveHourlyRate > 0 ? ob.effectiveHourlyRate : (ob.dailyRate / 10).roundToDouble()) * 3).toInt()} (calculated in Indian Rupees ₹)',
+                        style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
+                      ),
+                    ],
                   ],
                 ),
               ),

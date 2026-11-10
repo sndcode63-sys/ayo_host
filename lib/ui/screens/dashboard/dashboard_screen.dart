@@ -1,8 +1,11 @@
 import '../../widgets/shimmer_loading.dart';
 import 'package:flutter/material.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/services/toast_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/animation_utils.dart';
@@ -25,95 +28,6 @@ class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   static final _money = NumberFormat.currency(symbol: '₹', decimalDigits: 0);
-
-  void _showHandoverDialog(BuildContext context, Handover handover) {
-    final tokenController = TextEditingController();
-    final odoController = TextEditingController();
-    final fuelController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Row(
-          children: const [
-            Icon(Icons.qr_code_scanner_rounded, color: AppColors.primary),
-            SizedBox(width: 8),
-            Text('Scan / Enter Guest QR Token', style: TextStyle(fontSize: 16)),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Guest: ${handover.guestName}', style: AppText.sectionTitle.copyWith(fontSize: 13)),
-            Text('Vehicle: ${handover.vehicleName}', style: AppText.body.copyWith(fontSize: 11)),
-            const SizedBox(height: 14),
-            AppTextField(
-              label: 'Customer QR Handover Token',
-              hint: 'Paste or type token string...',
-              controller: tokenController,
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: AppTextField(
-                    label: 'Odometer (km)',
-                    hint: 'e.g. 45210',
-                    controller: odoController,
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: AppTextField(
-                    label: 'Fuel / Charge %',
-                    hint: '0 - 100',
-                    controller: fuelController,
-                    keyboardType: TextInputType.number,
-                    maxLength: 3,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.primary),
-            onPressed: () async {
-              final token = tokenController.text.trim();
-              final odo = int.tryParse(odoController.text.trim());
-              final fuel = int.tryParse(fuelController.text.trim());
-              if (odo == null || fuel == null || fuel < 0 || fuel > 100) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Enter odometer reading and fuel % (0-100)')),
-                );
-                return;
-              }
-              if (token.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Please enter or scan the QR token')),
-                );
-                return;
-              }
-              Navigator.pop(ctx);
-              await context.read<DashboardController>().startTripHandover(
-                    tripId: handover.tripId,
-                    token: token,
-                    odometerReading: odo,
-                    fuelPercent: fuel,
-                  );
-            },
-            child: const Text('Start Handover', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _showVehicleDetailsSheet(BuildContext context, Vehicle vehicle) {
     showModalBottomSheet(
@@ -182,7 +96,7 @@ class DashboardScreen extends StatelessWidget {
               const Divider(),
               const SizedBox(height: 8),
               _DetailRow(label: 'Daily Rate', value: '₹${vehicle.dailyRate.toInt()} / day'),
-              _DetailRow(label: 'Hourly Rate', value: '₹${vehicle.effectiveHourlyRate.toInt()} / hr'),
+              _DetailRow(label: 'Hourly Rate', value: vehicle.hourlyRate > 0 ? '₹${vehicle.hourlyRate.toInt()} / hr' : 'Not Enabled'),
               _DetailRow(label: 'Est. Monthly', value: vehicle.dailyRate > 0 ? '₹${(vehicle.dailyRate * 22).toInt()} / mo (est.)' : '₹0 / mo'),
               _DetailRow(label: 'Pickup Address', value: (vehicle.address?.isNotEmpty == true) ? vehicle.address! : 'Location not specified'),
               _DetailRow(label: 'Listing Status', value: vehicle.status),
@@ -235,44 +149,42 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final dash = context.watch<DashboardController>();
 
-    return SafeArea(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        floatingActionButton: Padding(
-          padding: const EdgeInsets.only(bottom: 70),
-          child: ScaleOnPress(
-            onTap: () {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      floatingActionButton: Padding(
+        padding: const EdgeInsets.only(bottom: 70),
+        child: ScaleOnPress(
+          onTap: () {
+            context.read<OnboardingController>().resetVehicleDraft();
+            Navigator.pushNamed(context, VehicleDetailsScreen.route);
+          },
+          child: FloatingActionButton(
+            onPressed: () {
               context.read<OnboardingController>().resetVehicleDraft();
               Navigator.pushNamed(context, VehicleDetailsScreen.route);
             },
-            child: FloatingActionButton(
-              onPressed: () {
-                context.read<OnboardingController>().resetVehicleDraft();
-                Navigator.pushNamed(context, VehicleDetailsScreen.route);
-              },
-              backgroundColor: AppColors.primary,
-              shape: const CircleBorder(),
-              child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
-            ),
+            backgroundColor: const Color(0xFFFE001A),
+            shape: const CircleBorder(),
+            child: const Icon(Icons.add_rounded, color: Colors.white, size: 28),
           ),
         ),
-        body: dash.loading && dash.stats == null
-            ? const DashboardShimmer()
-            : RefreshIndicator(
-                color: AppColors.primary,
-                onRefresh: () => context.read<DashboardController>().load(),
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(18, 12, 18, 120),
-                  children: [
-                    FadeSlideIn(
-                      delay: Duration.zero,
-                      child: _TopBar(hostProfile: dash.hostProfile),
-                    ),
-                    const SizedBox(height: 18),
-                    FadeSlideIn(
-                      delay: const Duration(milliseconds: 50),
-                      child: _Greeting(stats: dash.stats),
-                    ),
+      ),
+      body: dash.loading && dash.stats == null
+          ? const DashboardShimmer()
+          : RefreshIndicator(
+              color: const Color(0xFFFE001A),
+              onRefresh: () => context.read<DashboardController>().load(),
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  // Top Red Header Container (Image 3 design — No car image overlay as requested)
+                  _RedHeaderContainer(dash: dash),
+
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 16, 18, 120),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                     const SizedBox(height: 12),
                     FadeSlideIn(
                       delay: const Duration(milliseconds: 90),
@@ -288,22 +200,7 @@ class DashboardScreen extends StatelessWidget {
                       delay: const Duration(milliseconds: 190),
                       child: _StatsRow(stats: dash.stats),
                     ),
-                    const SizedBox(height: 20),
-                    if (dash.stats?.nextHandover != null) ...[
-                      SectionHeader(
-                        title: 'Next Handover',
-                        trailing: dash.stats!.nextHandover!.countdown,
-                      ),
-                      const SizedBox(height: 10),
-                      _HandoverCard(
-                        handover: dash.stats!.nextHandover!,
-                        onStartHandover: () => _showHandoverDialog(
-                          context,
-                          dash.stats!.nextHandover!,
-                        ),
-                      ),
-                      const SizedBox(height: 20),
-                    ],
+                    const SizedBox(height: 18),
                     if (dash.activeTrips.isNotEmpty) ...[
                       SectionHeader(
                         title: 'Active Trips',
@@ -312,19 +209,6 @@ class DashboardScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       for (final t in dash.activeTrips) ...[
                         _TripActionCard(trip: t, isActive: true),
-                        const SizedBox(height: 10),
-                      ],
-                      const SizedBox(height: 10),
-                    ],
-                    if (dash.upcomingTrips.isNotEmpty) ...[
-                      SectionHeader(
-                        title: 'Upcoming Trips',
-                        trailing: '${dash.upcomingTrips.length}',
-                        trailingColor: AppColors.textMuted,
-                      ),
-                      const SizedBox(height: 10),
-                      for (final t in dash.upcomingTrips) ...[
-                        _TripActionCard(trip: t, isActive: false),
                         const SizedBox(height: 10),
                       ],
                       const SizedBox(height: 10),
@@ -356,184 +240,367 @@ class DashboardScreen extends StatelessWidget {
                         ),
                         const SizedBox(height: 10),
                       ],
-                  ],
-                ),
-              ),
-      ),
-    );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({this.hostProfile});
-
-  final HostProfile? hostProfile;
-
-  @override
-  Widget build(BuildContext context) {
-    final locationText = hostProfile?.city.isNotEmpty == true
-        ? hostProfile!.city
-        : 'Location not set';
-
-    return Row(
-      children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Image.asset('assets/images/logo.png', height: 26, fit: BoxFit.contain),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppColors.fieldFill,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text('HOST',
-                      style: AppText.captionCaps
-                          .copyWith(color: AppColors.textSecondary, fontSize: 8.5)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
-            Row(
-              children: [
-                const Icon(Icons.my_location_rounded, size: 11, color: AppColors.primary),
-                const SizedBox(width: 4),
-                Text(
-                  locationText,
-                  style: AppText.captionCaps.copyWith(
-                    fontSize: 8.5,
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        const Spacer(),
-        Row(
-          children: [
-            Builder(
-              builder: (context) {
-                final avatarUrl = hostProfile?.avatarUrl;
-                final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
-                return GestureDetector(
-                  onTap: () => Navigator.pushNamed(context, AccountDetailsScreen.route),
-                  child: CircleAvatar(
-                    radius: 18,
-                    backgroundColor: AppColors.primarySoft,
-                    backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
-                    child: hasAvatar
-                        ? null
-                        : Text(
-                            hostProfile?.initials.isNotEmpty == true ? hostProfile!.initials : 'H',
-                            style: AppText.captionCaps.copyWith(color: AppColors.primary, fontWeight: FontWeight.bold),
-                          ),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(width: 12),
-            Builder(
-              builder: (context) {
-                final unread = context.watch<NotificationController>().unread;
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => Navigator.pushNamed(context, NotificationsScreen.route),
-                  child: Padding(
-                    padding: const EdgeInsets.all(4),
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: [
-                        const Icon(Icons.notifications_outlined,
-                            size: 26, color: AppColors.textPrimary),
-                        if (unread > 0)
-                          Positioned(
-                            right: -5,
-                            top: -4,
-                            child: Container(
-                              constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
-                              padding: const EdgeInsets.symmetric(horizontal: 4),
-                              decoration: BoxDecoration(
-                                color: AppColors.primary,
-                                borderRadius: BorderRadius.circular(10),
-                                border: Border.all(color: AppColors.background, width: 1.5),
-                              ),
-                              alignment: Alignment.center,
-                              child: Text(
-                                unread > 99 ? '99+' : '$unread',
-                                style: const TextStyle(
-                                    color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.w800, height: 1.1),
-                              ),
-                            ),
-                          ),
                       ],
                     ),
                   ),
-                );
-              },
+                ],
+              ),
             ),
-          ],
-        ),
-      ],
     );
   }
 }
 
-class _Greeting extends StatelessWidget {
-  const _Greeting({this.stats});
+/// Official Red Header Container matching Image 3 (Strictly NO car image overlay as requested)
+/// Fully dynamic: Interactive Date & Time pickers, Dynamic GPS/Profile Location, Dynamic Avatar, Dynamic Name
+class _RedHeaderContainer extends StatefulWidget {
+  const _RedHeaderContainer({required this.dash});
 
-  final DashboardStats? stats;
+  final DashboardController dash;
+
+  @override
+  State<_RedHeaderContainer> createState() => _RedHeaderContainerState();
+}
+
+class _RedHeaderContainerState extends State<_RedHeaderContainer> {
+  String? _selectedCity;
+  bool _isLocating = false;
+
+  Future<void> _detectGpsLocation() async {
+    setState(() => _isLocating = true);
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.deniedForever ||
+          permission == LocationPermission.denied) {
+        ToastService.showWarning('Location permission is needed to detect current city');
+        return;
+      }
+
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+
+      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+      if (placemarks.isNotEmpty) {
+        final place = placemarks.first;
+        final city = place.locality?.isNotEmpty == true
+            ? place.locality!
+            : (place.subAdministrativeArea?.isNotEmpty == true
+                ? place.subAdministrativeArea!
+                : (place.administrativeArea ?? 'Location'));
+
+        if (mounted) {
+          setState(() {
+            _selectedCity = city;
+          });
+          ToastService.showSuccess('Location detected: $city');
+        }
+      }
+    } catch (e) {
+      ToastService.showInfo('Could not detect live GPS city. Showing profile city.');
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
+  }
+
+  void _showLocationPicker(String currentCity) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Select Host Location',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.my_location_rounded, color: Color(0xFFFE001A)),
+                title: const Text('Use Current GPS Location'),
+                subtitle: const Text('Detect automatically from device sensor'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _detectGpsLocation();
+                },
+              ),
+              const Divider(),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Text('Popular Cities', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.grey)),
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  'Delhi NCR',
+                  'Mumbai',
+                  'Bengaluru',
+                  'Hyderabad',
+                  'Kolkata',
+                  'Pune',
+                  'Patna',
+                  'Chennai',
+                ].map((c) {
+                  final isSelected = c.toLowerCase() == currentCity.toLowerCase();
+                  return ChoiceChip(
+                    label: Text(c),
+                    selected: isSelected,
+                    selectedColor: const Color(0xFFFE001A),
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.white : const Color(0xFF1E2022),
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (_) {
+                      setState(() => _selectedCity = c);
+                      Navigator.pop(ctx);
+                    },
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 14),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.edit_location_alt_rounded, color: Color(0xFF1E2022)),
+                title: const Text('Edit in Host Profile'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () async {
+                  final dashCtrl = context.read<DashboardController>();
+                  Navigator.pop(ctx);
+                  await Navigator.pushNamed(context, AccountDetailsScreen.route);
+                  if (mounted) dashCtrl.load();
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
+    final auth = context.watch<AuthController>();
+    final hostProfile = widget.dash.hostProfile;
+
+    // 1. Dynamic Location: selectedCity ?? profile city ?? auth host city ?? 'Select Location'
+    final locationText = _selectedCity ??
+        (hostProfile?.city.isNotEmpty == true
+            ? hostProfile!.city
+            : (auth.host?.city.isNotEmpty == true
+                ? auth.host!.city
+                : 'Select Location'));
+
+    // 2. Dynamic Host Name:
+    final firstName = hostProfile?.firstName.trim();
+    final authName = auth.user?.name?.trim();
+    final statsName = widget.dash.stats?.hostName.trim();
+    final hostName = (firstName != null && firstName.isNotEmpty)
+        ? firstName
+        : (authName != null && authName.isNotEmpty)
+            ? authName.split(' ').first
+            : (statsName != null && statsName.isNotEmpty)
+                ? statsName.split(' ').first
+                : 'Host';
+
+    // 3. Dynamic Avatar:
+    final avatarUrl = hostProfile?.avatarUrl ?? hostProfile?.photoUrl ?? auth.host?.avatarUrl;
+    final hasAvatar = avatarUrl != null && avatarUrl.isNotEmpty;
+    String initials = 'H';
+    if (hostProfile?.initials.isNotEmpty == true) {
+      initials = hostProfile!.initials;
+    } else if (hostName.isNotEmpty) {
+      initials = hostName[0].toUpperCase();
+    }
+
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        color: Color(0xFFFE001A),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(32)),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x33FE001A),
+            blurRadius: 18,
+            offset: Offset(0, 8),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                '${stats?.greeting ?? 'Hello,'}\n${stats?.hostName ?? ''}',
-                style: AppText.screenTitle.copyWith(fontSize: 26),
+              // 1. Top Bar: Location on left, Notification & Profile on right
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Location Dropdown
+                  InkWell(
+                    onTap: () => _showLocationPicker(locationText),
+                    borderRadius: BorderRadius.circular(20),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _isLocating
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Icon(Icons.location_on_rounded, color: Colors.white, size: 20),
+                          const SizedBox(width: 4),
+                          Text(
+                            locationText,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 20),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Notification Bell & Profile Avatar
+                  Row(
+                    children: [
+                      // Notification Bell in white circle
+                      Builder(
+                        builder: (ctx) {
+                          final unread = ctx.watch<NotificationController>().unread;
+                          return InkWell(
+                            onTap: () => Navigator.pushNamed(ctx, NotificationsScreen.route),
+                            borderRadius: BorderRadius.circular(22),
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: const BoxDecoration(
+                                color: Colors.white,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.notifications_none_rounded,
+                                    size: 22,
+                                    color: Color(0xFF1E2022),
+                                  ),
+                                  if (unread > 0)
+                                    Positioned(
+                                      top: 8,
+                                      right: 8,
+                                      child: Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: const BoxDecoration(
+                                          color: Color(0xFFFE001A),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 10),
+
+                      // Profile Avatar
+                      InkWell(
+                        onTap: () async {
+                          final dashCtrl = context.read<DashboardController>();
+                          await Navigator.pushNamed(context, AccountDetailsScreen.route);
+                          if (mounted) {
+                            dashCtrl.load();
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(22),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 2),
+                          ),
+                          child: CircleAvatar(
+                            radius: 18,
+                            backgroundColor: Colors.white,
+                            backgroundImage: hasAvatar ? NetworkImage(avatarUrl) : null,
+                            child: hasAvatar
+                                ? null
+                                : Text(
+                                    initials,
+                                    style: const TextStyle(
+                                      color: Color(0xFFFE001A),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              Text('Fleet & Revenue Overview',
-                  style: AppText.body
-                      .copyWith(fontSize: 11, color: AppColors.textMuted)),
-            ],
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: AppColors.primarySoft,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.primaryBorder),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 7,
-                height: 7,
-                decoration: const BoxDecoration(
-                  color: AppColors.primary,
-                  shape: BoxShape.circle,
+              const SizedBox(height: 20),
+
+              // 2. Greeting (Strictly NO car image overlay as requested)
+              Text(
+                'Hello, $hostName 👋',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.4,
                 ),
               ),
-              const SizedBox(width: 5),
-              Text('Live\nHost',
-                  textAlign: TextAlign.center,
-                  style: AppText.captionCaps.copyWith(
-                      color: AppColors.primary, height: 1.1, fontSize: 9)),
+              const SizedBox(height: 4),
+              Text(
+                'Ready to host today? Manage your fleet & earnings',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.92),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                ),
+              ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 }
@@ -867,78 +934,6 @@ class _StatsRow extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _HandoverCard extends StatelessWidget {
-  const _HandoverCard({required this.handover, required this.onStartHandover});
-
-  final Handover handover;
-  final VoidCallback onStartHandover;
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      child: Column(
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: AppColors.fieldFill,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(Icons.directions_car_rounded,
-                    size: 26, color: AppColors.textMuted),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(handover.vehicleName,
-                        style: AppText.sectionTitle
-                            .copyWith(fontSize: 13.5)),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Guest: ${handover.guestName} · ${handover.timeLabel}',
-                      style: AppText.body.copyWith(fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-              StatusPill(label: handover.location, kind: StatusKind.danger),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 38,
-                  child: ElevatedButton.icon(
-                    onPressed: onStartHandover,
-                    icon: const Icon(Icons.qr_code_scanner_rounded,
-                        size: 16, color: Colors.white),
-                    label: Text('Start Handover',
-                        style: AppText.button.copyWith(fontSize: 11)),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
     );
   }
 }
