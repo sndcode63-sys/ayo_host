@@ -60,12 +60,14 @@ class ApiConfig {
   static const String paymentsVerify = '/payments/verify';
 
   // Trips & Handover
+  static const String tripScanHandover = '/trips/scan-handover';
   static String tripHandover(String tripId) => '/trips/$tripId/start-handover';
 
   // Host documents, listing fee & earnings
   static const String hostDocumentPresign = '/host/document/presign';
   static const String listingFee = '/host/listing-fee';
   static const String hostListingFee = '/host/listing-fee';
+  static const String vehiclesListingFee = '/vehicles/listing-fee';
   static const String hostEarnings = '/host/earnings';
   static const String vehiclesMy = '/vehicles/my';
 

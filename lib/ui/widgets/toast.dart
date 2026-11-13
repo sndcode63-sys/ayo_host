@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 class AppToast {
@@ -5,11 +6,15 @@ class AppToast {
 
   static GlobalKey<ScaffoldMessengerState> messengerKey =
       GlobalKey<ScaffoldMessengerState>();
+  static GlobalKey<NavigatorState>? navigatorKey;
+
+  static OverlayEntry? _activeOverlayEntry;
+  static Timer? _dismissTimer;
 
   static void show(
     String message, {
     ToastType type = ToastType.info,
-    Duration duration = const Duration(seconds: 3),
+    Duration duration = const Duration(seconds: 4),
   }) {
     Color accent;
     IconData icon;
@@ -30,6 +35,18 @@ class AppToast {
         accent = const Color(0xFF9DA3FF);
         icon = Icons.info_rounded;
         break;
+    }
+
+    final overlay = navigatorKey?.currentState?.overlay;
+    if (overlay != null) {
+      _showOverlayToast(
+        overlay: overlay,
+        message: message,
+        accent: accent,
+        icon: icon,
+        duration: duration,
+      );
+      return;
     }
 
     final messenger = messengerKey.currentState;
@@ -67,6 +84,108 @@ class AppToast {
         ),
       );
     }
+  }
+
+  static void _showOverlayToast({
+    required OverlayState overlay,
+    required String message,
+    required Color accent,
+    required IconData icon,
+    required Duration duration,
+  }) {
+    _dismissTimer?.cancel();
+    if (_activeOverlayEntry != null && _activeOverlayEntry!.mounted) {
+      _activeOverlayEntry!.remove();
+    }
+    _activeOverlayEntry = null;
+
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (context) {
+        final mediaQuery = MediaQuery.of(context);
+        final bottomInset = mediaQuery.viewInsets.bottom;
+        final bottomPad = mediaQuery.padding.bottom;
+        final effectiveBottom = bottomInset > 0 ? bottomInset + 16 : bottomPad + 24;
+
+        return Positioned(
+          left: 16,
+          right: 16,
+          bottom: effectiveBottom,
+          child: Material(
+            color: Colors.transparent,
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0.0, end: 1.0),
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, child) {
+                return Opacity(
+                  opacity: value,
+                  child: Transform.translate(
+                    offset: Offset(0, (1.0 - value) * 16),
+                    child: child,
+                  ),
+                );
+              },
+              child: GestureDetector(
+                onTap: () {
+                  _dismissTimer?.cancel();
+                  if (entry.mounted) {
+                    entry.remove();
+                  }
+                  if (_activeOverlayEntry == entry) {
+                    _activeOverlayEntry = null;
+                  }
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF15131A),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: accent.withValues(alpha: 0.45), width: 1.2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.45),
+                        blurRadius: 18,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(icon, color: accent, size: 22),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          message,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    _activeOverlayEntry = entry;
+    overlay.insert(entry);
+
+    _dismissTimer = Timer(duration, () {
+      if (entry.mounted) {
+        entry.remove();
+      }
+      if (_activeOverlayEntry == entry) {
+        _activeOverlayEntry = null;
+      }
+    });
   }
 
   static void showSuccess(String message) {

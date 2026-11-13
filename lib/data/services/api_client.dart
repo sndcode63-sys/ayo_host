@@ -201,16 +201,14 @@ class _ErrorInterceptor extends Interceptor {
   @override
   void onError(DioException err, ErrorInterceptorHandler handler) {
     String errorMessage = 'Something went wrong';
+    final responseData = err.response?.data;
 
-    if (err.response != null) {
-      final responseData = err.response!.data;
-      if (responseData is Map<String, dynamic>) {
-        if (responseData.containsKey('error')) {
-          final error = responseData['error'] as Map<String, dynamic>?;
-          errorMessage = error?['message'] ?? errorMessage;
-        } else if (responseData.containsKey('message')) {
-          errorMessage = responseData['message'] as String;
-        }
+    if (responseData is Map<String, dynamic>) {
+      if (responseData.containsKey('error')) {
+        final error = responseData['error'] as Map<String, dynamic>?;
+        errorMessage = error?['message'] ?? errorMessage;
+      } else if (responseData.containsKey('message')) {
+        errorMessage = responseData['message'] as String;
       }
     } else if (err.type == DioExceptionType.connectionTimeout ||
         err.type == DioExceptionType.receiveTimeout) {
@@ -226,10 +224,14 @@ class _ErrorInterceptor extends Interceptor {
           // Keep session persistent — do NOT wipe secure storage or force logout.
           // Only manual logout by user purges credentials.
           LoggerService.warning('401 response for: ${err.requestOptions.uri}');
-        } else if (errorMessage == 'Something went wrong') {
-          if (statusCode == 403) {
+        } else if (statusCode == 403) {
+          if (responseData is Map && responseData['error'] is Map && responseData['error']['code'] == 'INSUFFICIENT_ROLE') {
+            errorMessage = 'Access denied: Host account role required. This account is registered as Customer on the backend.';
+          } else if (errorMessage == 'Something went wrong') {
             errorMessage = 'Access denied. You don\'t have permission.';
-          } else if (statusCode == 404) {
+          }
+        } else if (errorMessage == 'Something went wrong') {
+          if (statusCode == 404) {
             errorMessage = 'Resource not found.';
           } else if (statusCode == 422) {
             errorMessage = 'Invalid data provided.';

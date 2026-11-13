@@ -8,6 +8,7 @@ import '../../../core/utils/animation_utils.dart';
 import '../../../data/models/models.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/cards.dart';
+import '../../widgets/app_image_view.dart';
 import '../account/account_details_screen.dart';
 import '../auth/sign_in_screen.dart';
 import '../dashboard/fleet_screen.dart';
@@ -16,6 +17,7 @@ import '../insights/performance_insights_screen.dart';
 import '../notifications/notifications_screen.dart';
 import '../onboarding/payout_setup_screen.dart';
 import '../onboarding/vehicle_details_screen.dart';
+import '../trips/upcoming_trips_screen.dart';
 
 /// AYO Host Menu & Settings — "More" tab (Fully Dynamic & Interactive).
 class MoreMenuScreen extends StatefulWidget {
@@ -351,6 +353,13 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
                 onTap: () => Navigator.pushNamed(context, NotificationsScreen.route),
               ),
               _MenuItem(
+                icon: Icons.qr_code_scanner_rounded,
+                title: 'Upcoming Trips & Handover',
+                subtitle: 'Scan customer pickup QR to activate trips',
+                tag: 'NEW',
+                onTap: () => Navigator.pushNamed(context, UpcomingTripsScreen.route),
+              ),
+              _MenuItem(
                 icon: Icons.insights_rounded,
                 title: 'Listing Performance & Insights',
                 subtitle: 'Circular chart, views, conversion & earnings boost',
@@ -450,6 +459,12 @@ class _MoreMenuScreenState extends State<MoreMenuScreen> {
           Center(
             child: TextButton.icon(
               onPressed: () {
+                AppImageCache.clear();
+                context.read<DashboardController>().reset();
+                context.read<ProfileController>().reset();
+                context.read<EarningsController>().reset();
+                context.read<NotificationController>().reset();
+                context.read<OnboardingController>().resetVehicleDraft();
                 context.read<AuthController>().signOut();
                 Navigator.pushNamedAndRemoveUntil(
                     context, SignInScreen.route, (r) => false);

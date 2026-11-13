@@ -8,7 +8,9 @@ import '../../data/services/host_service.dart';
 /// Shows the current admin-set listing fee (`GET /vehicles/listing-fee`).
 /// Hidden if the fee can't be loaded, so it never blocks onboarding.
 class ListingFeeBanner extends StatefulWidget {
-  const ListingFeeBanner({super.key});
+  const ListingFeeBanner({super.key, this.vehicleType});
+
+  final String? vehicleType;
 
   @override
   State<ListingFeeBanner> createState() => _ListingFeeBannerState();
@@ -19,11 +21,15 @@ class _ListingFeeBannerState extends State<ListingFeeBanner> {
 
   @override
   Widget build(BuildContext context) {
+    final isBike = widget.vehicleType?.toUpperCase() == 'BIKE';
+
     return FutureBuilder<ListingFeeConfig>(
       future: _future,
       builder: (context, snap) {
         if (snap.hasError) return const SizedBox.shrink();
         final fee = snap.data;
+        final displayPrice = fee == null ? '' : fee.displayFor(widget.vehicleType);
+
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(16),
@@ -41,7 +47,11 @@ class _ListingFeeBannerState extends State<ListingFeeBanner> {
                   color: AppColors.primary.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.receipt_long_rounded, color: Colors.white, size: 22),
+                child: Icon(
+                  isBike ? Icons.two_wheeler_rounded : Icons.directions_car_rounded,
+                  color: Colors.white,
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -49,7 +59,9 @@ class _ListingFeeBannerState extends State<ListingFeeBanner> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'One-time listing fee',
+                      widget.vehicleType != null
+                          ? '${isBike ? "Bike" : "Car"} Listing Fee'
+                          : 'One-time listing fee',
                       style: AppText.body.copyWith(
                           fontWeight: FontWeight.w700, color: Colors.white, fontSize: 14),
                     ),
@@ -59,7 +71,7 @@ class _ListingFeeBannerState extends State<ListingFeeBanner> {
                           ? 'Checking current fee…'
                           : (fee.bypass
                               ? 'No fee right now. Your listing goes straight to review.'
-                              : 'Paid when you submit this vehicle for review.'),
+                              : 'Paid when you submit this ${isBike ? "bike" : "vehicle"} for review.'),
                       style: AppText.body.copyWith(
                           fontSize: 12, color: Colors.white.withValues(alpha: 0.62)),
                     ),
@@ -75,7 +87,7 @@ class _ListingFeeBannerState extends State<ListingFeeBanner> {
                 )
               else
                 Text(
-                  fee.display,
+                  displayPrice,
                   style: AppText.screenTitle.copyWith(fontSize: 22, color: Colors.white),
                 ),
             ],

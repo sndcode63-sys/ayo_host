@@ -32,18 +32,49 @@ class HostService {
     required File file,
     required String uploadUrl,
     String contentType = 'image/jpeg',
+    Map<String, String>? headers,
   }) async {
     try {
-      LoggerService.info('Direct binary PUT upload to Google Cloud Storage (ayo-rentals)...');
       final fileBytes = await file.readAsBytes();
+      final uri = Uri.parse(uploadUrl);
+      LoggerService.info('Direct binary upload to GCS (${fileBytes.length} bytes, url: ${uri.host}${uri.path})...');
 
-      final response = await http.put(
-        Uri.parse(uploadUrl),
-        headers: {'Content-Type': contentType},
+      // Attempt 1: Upload with backend-specified headers if present, else Content-Type
+      final reqHeaders = <String, String>{};
+      if (headers != null && headers.isNotEmpty) {
+        reqHeaders.addAll(headers);
+      } else {
+        reqHeaders['Content-Type'] = contentType;
+      }
+
+      var response = await http.put(
+        uri,
+        headers: reqHeaders,
         body: fileBytes,
       );
 
-      if (response.statusCode != 200 && response.statusCode != 201) {
+      // Attempt 2: If GCS returns 403 (often due to Content-Type signature mismatch), retry without Content-Type
+      if (response.statusCode == 403 && reqHeaders.containsKey('Content-Type')) {
+        LoggerService.warning('GCS returned 403 with Content-Type ($contentType). Retrying without Content-Type...');
+        final retryHeaders = Map<String, String>.from(reqHeaders)..remove('Content-Type');
+        response = await http.put(
+          uri,
+          headers: retryHeaders.isEmpty ? null : retryHeaders,
+          body: fileBytes,
+        );
+      }
+
+      // Attempt 3: If still failing with 400 or 403, retry with standard binary stream
+      if ((response.statusCode == 400 || response.statusCode == 403) && contentType != 'application/octet-stream') {
+        LoggerService.warning('GCS returned ${response.statusCode}. Retrying with application/octet-stream...');
+        response = await http.put(
+          uri,
+          headers: {'Content-Type': 'application/octet-stream'},
+          body: fileBytes,
+        );
+      }
+
+      if (response.statusCode != 200 && response.statusCode != 201 && response.statusCode != 204) {
         throw Exception('GCS direct upload failed with status ${response.statusCode}: ${response.body}');
       }
 
@@ -58,24 +89,29 @@ class HostService {
   static Future<String> uploadImageToGcs(File file, {String? contentType}) async {
     try {
       final mime = contentType ?? _getContentType(file.path);
-      LoggerService.info('Requesting GCS presigned upload URL...');
+      LoggerService.info('Requesting GCS presigned upload URL (mime: $mime)...');
       final presignRes = await ApiClient.instance.post(
         ApiConfig.hostAvatarPresign,
         data: {'content_type': mime},
       );
 
-      final data = presignRes['data'] as Map<String, dynamic>;
-      final presign = GcsPresignResponse.fromJson(data);
+      final presign = GcsPresignResponse.fromJson(presignRes);
 
       if (presign.uploadUrl.isEmpty) {
         throw Exception('Presigned URL returned from backend is empty');
       }
 
       LoggerService.info('Uploading binary file to GCS: ${presign.key}...');
-      await uploadBytesToGcs(file: file, uploadUrl: presign.uploadUrl, contentType: mime);
+      await uploadBytesToGcs(
+        file: file,
+        uploadUrl: presign.uploadUrl,
+        contentType: mime,
+        headers: presign.headers,
+      );
 
-      LoggerService.info('GCS upload completed: ${presign.publicUrl}');
-      return presign.publicUrl;
+      final publicUrl = presign.publicUrl;
+      LoggerService.info('GCS upload completed: $publicUrl');
+      return publicUrl;
     } catch (e) {
       LoggerService.error('Failed GCS direct upload', error: e);
       rethrow;
@@ -110,32 +146,32 @@ class HostService {
   }) async {
     try {
       final contentType = _getContentType(imageFile.path);
-      LoggerService.info('1. Requesting vehicle photo presign for vehicle: $vehicleId (category: $category)...');
+      LoggerService.info('1. Requesting vehicle photo presign for vehicle: $vehicleId (category: $category, mime: $contentType)...');
 
       Map<String, dynamic> presignRes;
       try {
         presignRes = await ApiClient.instance.post(
-          ApiConfig.vehicleMediaPresign(vehicleId),
-          data: {'category': category.toUpperCase(), 'content_type': contentType},
+          ApiConfig.vehiclePhotosPresign(vehicleId),
+          data: {'content_type': contentType, 'category': category.toUpperCase(), 'kind': 'PHOTO'},
         );
       } catch (_) {
         presignRes = await ApiClient.instance.post(
-          ApiConfig.vehiclePhotosPresign(vehicleId),
-          data: {'content_type': contentType, 'kind': 'PHOTO'},
+          ApiConfig.vehicleMediaPresign(vehicleId),
+          data: {'category': category.toUpperCase(), 'content_type': contentType},
         );
       }
 
-      final presign = GcsPresignResponse.fromJson(
-          (presignRes['data'] is Map ? presignRes['data'] : presignRes) as Map<String, dynamic>);
+      final presign = GcsPresignResponse.fromJson(presignRes);
       if (presign.uploadUrl.isEmpty) {
         throw Exception('Vehicle photo presigned URL is empty');
       }
 
-      LoggerService.info('2. Uploading photo binary bytes to GCS...');
+      LoggerService.info('2. Uploading photo binary bytes to GCS: ${presign.key}...');
       await uploadBytesToGcs(
         file: imageFile,
         uploadUrl: presign.uploadUrl,
         contentType: contentType,
+        headers: presign.headers,
       );
 
       LoggerService.info('3. Confirming vehicle photo with Ayo Backend ($category)...');
@@ -177,26 +213,28 @@ class HostService {
   }) async {
     try {
       final contentType = _getContentType(file.path);
-      LoggerService.info('1. Requesting vehicle document presign for $docType...');
+      LoggerService.info('1. Requesting vehicle document presign for $docType ($contentType)...');
 
       final presignRes = await ApiClient.instance.post(
         ApiConfig.vehicleDocumentsPresign(vehicleId),
         data: {
           'type': docType,
+          'document_type': docType,
           'content_type': contentType,
         },
       );
 
-      final presign = GcsPresignResponse.fromJson(presignRes['data'] as Map<String, dynamic>);
+      final presign = GcsPresignResponse.fromJson(presignRes);
       if (presign.uploadUrl.isEmpty) {
         throw Exception('Vehicle document presigned URL is empty');
       }
 
-      LoggerService.info('2. Uploading document binary bytes to GCS...');
+      LoggerService.info('2. Uploading document binary bytes to GCS: ${presign.key}...');
       await uploadBytesToGcs(
         file: file,
         uploadUrl: presign.uploadUrl,
         contentType: contentType,
+        headers: presign.headers,
       );
 
       final fileSizeBytes = await file.length();
@@ -773,7 +811,10 @@ class HostService {
   static Future<ListingFeeOrderResponse> payListingFee(String vehicleId) async {
     try {
       LoggerService.info('Creating listing fee order for vehicle: $vehicleId');
-      final response = await ApiClient.instance.post(ApiConfig.vehiclePayListingFee(vehicleId));
+      final response = await ApiClient.instance.post(
+        ApiConfig.vehiclePayListingFee(vehicleId),
+        data: {'payment_method': 'RAZORPAY'},
+      );
       final data = response['data'] is Map<String, dynamic> ? response['data'] as Map<String, dynamic> : response;
       return ListingFeeOrderResponse.fromJson(data);
     } catch (e) {
@@ -930,6 +971,35 @@ class HostService {
     }
   }
 
+  /// Direct Handover QR scan: `POST /api/v1/trips/scan-handover`
+  static Future<Map<String, dynamic>> scanHandover({
+    required String handoverToken,
+    double? hostLat,
+    double? hostLng,
+  }) async {
+    final body = {
+      'handover_token': handoverToken.trim(),
+      // ignore: use_null_aware_elements
+      if (hostLat != null) 'host_lat': hostLat,
+      // ignore: use_null_aware_elements
+      if (hostLng != null) 'host_lng': hostLng,
+      // ignore: use_null_aware_elements
+      if (hostLng != null) 'host_lon': hostLng,
+    };
+    try {
+      LoggerService.info('Scanning and verifying handover token directly...');
+      final response = await ApiClient.instance.post(
+        ApiConfig.tripScanHandover,
+        data: body,
+      );
+      ToastService.showSuccess('Vehicle handover verified! Trip is now ACTIVE.');
+      return (response['data'] is Map ? response['data'] : response) as Map<String, dynamic>;
+    } catch (e) {
+      LoggerService.error('Direct scan handover failed', error: e);
+      rethrow;
+    }
+  }
+
   /// Guide route `POST /trips/:id/verify-handover` (token, odometer, fuel, host location).
   /// Falls back to legacy `/trips/:id/start-handover` if the new route 404s.
   static Future<Map<String, dynamic>> startHandover({
@@ -1056,7 +1126,7 @@ class HostService {
     return d is Map<String, dynamic> ? d : res;
   }
 
-  /// [documentType]: DL_FRONT | DL_BACK | SELFIE. Returns the storage key that
+  /// [documentType]: DL_FRONT | DL_BACK | SELFIE. Returns the storage key or URL that
   /// goes into `driving_licence_front_url` / `_back_url` / `selfie_url`.
   static Future<String> uploadHostDocument({
     required String documentType,
@@ -1064,16 +1134,32 @@ class HostService {
   }) async {
     try {
       final mime = _getContentType(file.path);
+      LoggerService.info('Requesting host document presign for $documentType ($mime)...');
       final res = await ApiClient.instance.post(
         ApiConfig.hostDocumentPresign,
-        data: {'document_type': documentType, 'content_type': mime},
+        data: {
+          'document_type': documentType,
+          'type': documentType,
+          'content_type': mime,
+        },
       );
-      final presign = GcsPresignResponse.fromJson(_unwrap(res));
-      if (presign.uploadUrl.isEmpty || presign.key.isEmpty) {
+      final presign = GcsPresignResponse.fromJson(res);
+      if (presign.uploadUrl.isEmpty) {
         throw Exception('Upload URL not received from server');
       }
-      await uploadBytesToGcs(file: file, uploadUrl: presign.uploadUrl, contentType: mime);
-      return presign.key;
+      LoggerService.info('Uploading host document binary bytes to GCS: ${presign.key}...');
+      await uploadBytesToGcs(
+        file: file,
+        uploadUrl: presign.uploadUrl,
+        contentType: mime,
+        headers: presign.headers,
+      );
+      final returnKey = presign.key.isNotEmpty ? presign.key : presign.publicUrl;
+      if (returnKey.isEmpty) {
+        throw Exception('Failed to obtain uploaded document reference key');
+      }
+      LoggerService.info('Host document upload succeeded ($documentType): $returnKey');
+      return returnKey;
     } catch (e) {
       LoggerService.error('Host document upload failed ($documentType)', error: e);
       rethrow;
@@ -1084,9 +1170,13 @@ class HostService {
   static Future<ListingFeeConfig> getListingFee() async {
     Map<String, dynamic> res;
     try {
-      res = await ApiClient.instance.get(ApiConfig.hostListingFee);
+      res = await ApiClient.instance.get(ApiConfig.vehiclesListingFee);
     } catch (_) {
-      res = await ApiClient.instance.get(ApiConfig.listingFee);
+      try {
+        res = await ApiClient.instance.get(ApiConfig.hostListingFee);
+      } catch (_) {
+        res = await ApiClient.instance.get(ApiConfig.listingFee);
+      }
     }
     return ListingFeeConfig.fromJson(_unwrap(res));
   }

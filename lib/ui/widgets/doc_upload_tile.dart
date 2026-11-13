@@ -103,9 +103,9 @@ class _DocUploadTileState extends State<DocUploadTile> {
       if (!mounted) return;
       setState(() => _key = key);
       widget.onUploaded(key);
-    } catch (_) {
+    } catch (e) {
       if (mounted) setState(() => _localPath = null);
-      ToastService.showError('${widget.title} upload failed. Please try again.');
+      ToastService.showError('${widget.title} upload failed: $e');
     } finally {
       if (mounted) setState(() => _uploading = false);
     }

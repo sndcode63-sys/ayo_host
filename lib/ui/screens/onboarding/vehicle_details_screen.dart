@@ -168,11 +168,109 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
               style: AppText.body,
             ),
             const SizedBox(height: 16),
-            const ListingFeeBanner(),
+
+            // ─── Car vs Bike Selection Toggle ───
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF1F3F6),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFFE2E4E8)),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => context.read<OnboardingController>().setVehicleType('CAR'),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: ob.vehicleType == 'CAR' ? Colors.white : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: ob.vehicleType == 'CAR'
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.directions_car_rounded,
+                              size: 19,
+                              color: ob.vehicleType == 'CAR' ? AppColors.primary : AppColors.textMuted,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Car / 4-Wheeler',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: ob.vehicleType == 'CAR' ? FontWeight.bold : FontWeight.w600,
+                                color: ob.vehicleType == 'CAR' ? const Color(0xFF1E2022) : AppColors.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => context.read<OnboardingController>().setVehicleType('BIKE'),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: ob.vehicleType == 'BIKE' ? Colors.white : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: ob.vehicleType == 'BIKE'
+                              ? [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.08),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.two_wheeler_rounded,
+                              size: 19,
+                              color: ob.vehicleType == 'BIKE' ? AppColors.primary : AppColors.textMuted,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Bike / Scooter',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: ob.vehicleType == 'BIKE' ? FontWeight.bold : FontWeight.w600,
+                                color: ob.vehicleType == 'BIKE' ? const Color(0xFF1E2022) : AppColors.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            ListingFeeBanner(vehicleType: ob.vehicleType),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('VEHICLE CLASS / BODY TYPE', style: AppText.fieldLabel),
+                Text(ob.vehicleType == 'BIKE' ? 'BIKE TYPE / CATEGORY' : 'VEHICLE CLASS / BODY TYPE', style: AppText.fieldLabel),
                 GestureDetector(
                   onTap: () => _showAddCustomClassDialog(context),
                   child: Text(
@@ -194,7 +292,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 for (final t in ob.bodyTypes)
                   SelectChip(
                     label: t,
-                    icon: t == 'Electric' ? Icons.bolt_rounded : null,
+                    icon: t.contains('Electric') ? Icons.bolt_rounded : (ob.vehicleType == 'BIKE' ? Icons.two_wheeler_rounded : null),
                     selected: ob.bodyType == t,
                     onTap: () =>
                         context.read<OnboardingController>().setBodyType(t),
@@ -212,8 +310,8 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
               children: [
                 Expanded(
                   child: AppTextField(
-                    label: 'Make / Brand',
-                    hint: 'e.g. Hyundai, Tata, Porsche...',
+                    label: ob.vehicleType == 'BIKE' ? 'Bike Brand / Make' : 'Make / Brand',
+                    hint: ob.vehicleType == 'BIKE' ? 'e.g. Royal Enfield, Yamaha, Honda...' : 'e.g. Hyundai, Tata, Porsche...',
                     controller: _makeController,
                     onChanged: (v) => ob.make = v,
                   ),
@@ -221,8 +319,8 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: AppTextField(
-                    label: 'Model Name',
-                    hint: 'e.g. City, Baleno, Creta, Harrier...',
+                    label: ob.vehicleType == 'BIKE' ? 'Bike Model Name' : 'Model Name',
+                    hint: ob.vehicleType == 'BIKE' ? 'e.g. Classic 350, MT-15, Activa...' : 'e.g. City, Baleno, Creta, Harrier...',
                     controller: _modelController,
                     onChanged: (v) => ob.model = v,
                   ),
@@ -245,10 +343,10 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                 Expanded(
                   child: AppDropdownField(
                     label: 'Transmission',
-                    value: ob.transmission.isEmpty ? 'Automatic' : ob.transmission,
-                    hint: 'Automatic',
-                    items: const ['Automatic', 'Manual'],
-                    onChanged: (v) => ob.transmission = v ?? 'Automatic',
+                    value: ob.transmission.isEmpty ? (ob.vehicleType == 'BIKE' ? 'Manual' : 'Automatic') : ob.transmission,
+                    hint: ob.vehicleType == 'BIKE' ? 'Manual' : 'Automatic',
+                    items: ob.vehicleType == 'BIKE' ? const ['Manual', 'Automatic (CVT)'] : const ['Automatic', 'Manual'],
+                    onChanged: (v) => ob.transmission = v ?? (ob.vehicleType == 'BIKE' ? 'Manual' : 'Automatic'),
                   ),
                 ),
               ],
@@ -260,9 +358,9 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                   child: AppDropdownField(
                     label: 'Seats',
                     value: ob.seatingCapacity.toString(),
-                    hint: '5',
-                    items: const ['2', '4', '5', '6', '7', '8'],
-                    onChanged: (v) => ob.seatingCapacity = int.tryParse(v ?? '') ?? 5,
+                    hint: ob.vehicleType == 'BIKE' ? '2' : '5',
+                    items: ob.vehicleType == 'BIKE' ? const ['1', '2'] : const ['2', '4', '5', '6', '7', '8'],
+                    onChanged: (v) => ob.seatingCapacity = int.tryParse(v ?? '') ?? (ob.vehicleType == 'BIKE' ? 2 : 5),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -284,16 +382,18 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                   child: AppDropdownField(
                     label: 'Drivetrain',
                     value: ob.drivetrain,
-                    hint: '2WD',
-                    items: const ['2WD', '4WD', 'AWD', 'FWD', 'RWD'],
-                    onChanged: (v) => ob.drivetrain = v ?? '2WD',
+                    hint: ob.vehicleType == 'BIKE' ? 'Chain Drive' : '2WD',
+                    items: ob.vehicleType == 'BIKE'
+                        ? const ['Chain Drive', 'Belt Drive', 'Shaft Drive', 'Hub Motor']
+                        : const ['2WD', '4WD', 'AWD', 'FWD', 'RWD'],
+                    onChanged: (v) => ob.drivetrain = v ?? (ob.vehicleType == 'BIKE' ? 'Chain Drive' : '2WD'),
                   ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: AppTextField(
                     label: 'Mileage',
-                    hint: 'e.g. 16 kmpl',
+                    hint: ob.vehicleType == 'BIKE' ? 'e.g. 40 kmpl' : 'e.g. 16 kmpl',
                     controller: _mileageController,
                     onChanged: (v) => ob.mileage = v,
                   ),
@@ -450,10 +550,10 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                         Text(
                           ob.hourlyRentals
                               ? (ob.effectiveHourlyRate > 0
-                                  ? '₹${ob.effectiveHourlyRate.toInt()}/hr · 3 hr minimum'
+                                  ? '₹${ob.effectiveHourlyRate.toInt()}/hr · 6 hr minimum'
                                   : (ob.dailyRate > 0
-                                      ? '₹${(ob.dailyRate / 10).round()}/hr · 3 hr minimum'
-                                      : 'Calculated from daily rate · 3 hr minimum'))
+                                      ? '₹${(ob.dailyRate / 10).round()}/hr · 6 hr minimum'
+                                      : 'Calculated from daily rate · 6 hr minimum'))
                               : 'Enable hourly bookings alongside daily rentals',
                           style: AppText.body.copyWith(
                             fontSize: 11,
@@ -510,7 +610,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                             border: Border.all(color: AppColors.primaryBorder),
                           ),
                           child: Text(
-                            '3 hr minimum trip',
+                            '6 hr minimum trip',
                             style: AppText.captionCaps.copyWith(
                               color: AppColors.primary,
                               fontWeight: FontWeight.bold,
@@ -523,7 +623,7 @@ class _VehicleDetailsScreenState extends State<VehicleDetailsScreen> {
                     if (ob.effectiveHourlyRate > 0 || ob.dailyRate > 0) ...[
                       const SizedBox(height: 6),
                       Text(
-                        'Minimum trip earnings: ₹${((ob.effectiveHourlyRate > 0 ? ob.effectiveHourlyRate : (ob.dailyRate / 10).roundToDouble()) * 3).toInt()} (calculated in Indian Rupees ₹)',
+                        'Minimum trip earnings: ₹${((ob.effectiveHourlyRate > 0 ? ob.effectiveHourlyRate : (ob.dailyRate / 10).roundToDouble()) * 6).toInt()} (calculated in Indian Rupees ₹)',
                         style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
                       ),
                     ],

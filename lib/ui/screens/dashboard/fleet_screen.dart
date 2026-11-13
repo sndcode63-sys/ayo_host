@@ -12,6 +12,7 @@ import '../../widgets/cards.dart';
 import '../../widgets/app_image_view.dart';
 import '../documents/vehicle_documents_screen.dart';
 import '../onboarding/vehicle_details_screen.dart';
+import '../trips/scan_handover_screen.dart';
 
 /// Full Fleet Management Screen for AYO Host with real backend data & filtering.
 class FleetScreen extends StatefulWidget {
@@ -47,6 +48,12 @@ class _FleetScreenState extends State<FleetScreen> {
         backgroundColor: Colors.transparent,
         actions: [
           IconButton(
+            tooltip: 'Verify Pickup Handover QR',
+            icon: const Icon(Icons.qr_code_scanner_rounded, color: AppColors.primary, size: 26),
+            onPressed: () => Navigator.pushNamed(context, ScanHandoverScreen.route),
+          ),
+          IconButton(
+            tooltip: 'Add Vehicle',
             icon: const Icon(Icons.add_circle_outline_rounded,
                 color: AppColors.primary, size: 28),
             onPressed: () {
@@ -365,6 +372,8 @@ class _FleetCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isBike = vehicle.isBike;
+
     return AppCard(
       padding: EdgeInsets.zero,
       onTap: () {
@@ -403,7 +412,24 @@ class _FleetCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    StatusPill.auto(vehicle.status),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          margin: const EdgeInsets.only(right: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F3F6),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            isBike ? '🏍️ Bike' : '🚗 Car',
+                            style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF1E2022)),
+                          ),
+                        ),
+                        StatusPill.auto(vehicle.status),
+                      ],
+                    ),
                   ],
                 ),
                 const SizedBox(height: 4),
@@ -412,14 +438,14 @@ class _FleetCard extends StatelessWidget {
                   style: AppText.body.copyWith(
                       fontSize: 11, color: AppColors.textMuted),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  vehicle.plate.isNotEmpty
-                      ? vehicle.plate
-                      : 'Plate Verification Pending',
-                  style: AppText.captionCaps
-                      .copyWith(fontSize: 9.5, color: AppColors.primary),
-                ),
+                if (vehicle.plate.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    vehicle.plate,
+                    style: AppText.captionCaps
+                        .copyWith(fontSize: 9.5, color: AppColors.primary),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 const Divider(),
                 const SizedBox(height: 8),

@@ -15,6 +15,10 @@ class AppImageCache {
     }
   }
 
+  static void clear() {
+    _urlToLocalPath.clear();
+  }
+
   static String? getLocalPath(String? url) {
     if (url == null || url.trim().isEmpty) return null;
     final path = _urlToLocalPath[url.trim()];

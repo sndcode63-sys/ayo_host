@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/services/secure_storage_service.dart';
 import '../../../core/utils/animation_utils.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/services/host_service.dart';
@@ -93,9 +94,13 @@ class _SplashScreenState extends State<SplashScreen>
     String targetRoute = SignInScreen.route;
     try {
       final isAuth = await AuthService.isAuthenticated();
+      final role = await SecureStorageService.getUserRole();
       if (!mounted) return;
 
-      if (!isAuth) {
+      if (!isAuth || role?.toUpperCase() == 'CUSTOMER') {
+        if (role?.toUpperCase() == 'CUSTOMER') {
+          await AuthService.logout();
+        }
         targetRoute = SignInScreen.route;
       } else {
         // User has active session — keep persistent, NEVER auto-logout

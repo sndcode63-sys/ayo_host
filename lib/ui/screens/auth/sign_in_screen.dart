@@ -7,6 +7,7 @@ import '../../../core/services/toast_service.dart';
 import '../../../core/utils/animation_utils.dart';
 import '../../../state/controllers.dart';
 import '../../widgets/buttons.dart';
+import '../../widgets/app_image_view.dart';
 import '../dashboard/main_shell.dart';
 import '../onboarding/host_profile_setup_screen.dart';
 
@@ -31,6 +32,13 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   void _routeAfterAuth() {
+    AppImageCache.clear();
+    context.read<DashboardController>().reset();
+    context.read<ProfileController>().reset();
+    context.read<EarningsController>().reset();
+    context.read<NotificationController>().reset();
+    context.read<OnboardingController>().resetVehicleDraft();
+
     final auth = context.read<AuthController>();
     final status = auth.onboardingStatus;
 
@@ -369,6 +377,8 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
   Timer? _timer;
   String? _detectedClipboardOtp;
 
+  String? _errorMessage;
+
   @override
   void initState() {
     super.initState();
@@ -399,7 +409,7 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
     if (digits.length >= 6) {
       final valid6 = digits.substring(0, 6);
       _masterOtpController.text = valid6;
-      setState(() {});
+      setState(() => _errorMessage = null);
       _verifyOtp();
     }
   }
@@ -429,18 +439,49 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
   Future<void> _verifyOtp() async {
     final code = _otpCode;
     if (code.length < 6) {
+      setState(() {
+        _errorMessage = 'Please enter full 6-digit OTP code';
+      });
       ToastService.showWarning('Please enter full 6-digit OTP code');
       return;
     }
 
+    setState(() {
+      _errorMessage = null;
+    });
+
     final auth = context.read<AuthController>();
     final verified = await auth.verifyOtpCode(code);
 
-    if (mounted && verified) {
+    if (!mounted) return;
+
+    if (verified) {
       try {
         TextInput.finishAutofillContext();
       } catch (_) {}
       widget.onSuccess();
+    } else {
+      final rawErr = auth.error ?? '';
+      String displayMsg = 'Invalid OTP code. Please check and retry.';
+      if (rawErr.contains('already registered as a Customer') ||
+          rawErr.contains('registered for Customer') ||
+          rawErr.contains('CUSTOMER')) {
+        displayMsg =
+            'This mobile number is already registered for Customer. Please use a Host account or register with a different number.';
+      } else if (rawErr.contains('INVALID_OTP')) {
+        displayMsg =
+            'Incorrect OTP code. Please enter the valid code sent to your phone.';
+      } else if (rawErr.contains('TOO_MANY_ATTEMPTS')) {
+        displayMsg =
+            'Too many attempts. Please tap Resend to receive a fresh code.';
+      } else if (rawErr.isNotEmpty) {
+        displayMsg = rawErr.replaceFirst('Exception: ', '').trim();
+      }
+
+      setState(() {
+        _errorMessage = displayMsg;
+      });
+      ToastService.showError(displayMsg);
     }
   }
 
@@ -456,6 +497,7 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
   Widget build(BuildContext context) {
     final loading = context.watch<AuthController>().loading;
     final otpText = _masterOtpController.text;
+    final hasError = _errorMessage != null && _errorMessage!.isNotEmpty;
 
     return Container(
       decoration: const BoxDecoration(
@@ -548,12 +590,14 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
                               color: const Color(0xFFF4F5F7),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: isFocused
+                                color: hasError
                                     ? const Color(0xFFFE001A)
-                                    : (hasChar
-                                        ? const Color(0xFFFE001A).withValues(alpha: 0.5)
-                                        : const Color(0xFFE2E4E8)),
-                                width: isFocused ? 2.0 : 1.0,
+                                    : (isFocused
+                                        ? const Color(0xFFFE001A)
+                                        : (hasChar
+                                            ? const Color(0xFFFE001A).withValues(alpha: 0.5)
+                                            : const Color(0xFFE2E4E8))),
+                                width: hasError || isFocused ? 2.0 : 1.0,
                               ),
                             ),
                             child: Text(
@@ -587,7 +631,11 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
                               border: InputBorder.none,
                             ),
                             onChanged: (val) {
-                              setState(() {});
+                              if (_errorMessage != null) {
+                                setState(() => _errorMessage = null);
+                              } else {
+                                setState(() {});
+                              }
                               if (val.trim().length == 6) {
                                 _verifyOtp();
                               }
@@ -597,6 +645,48 @@ class _OtpBottomSheetContentState extends State<_OtpBottomSheetContent> {
                       ),
                     ],
                   ),
+
+                  // Prominent inline error container if OTP verification fails
+                  if (_errorMessage != null && _errorMessage!.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFECEE),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFFFE001A).withValues(alpha: 0.4),
+                          width: 1.1,
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.error_outline_rounded,
+                              color: Color(0xFFFE001A),
+                              size: 18,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              _errorMessage!,
+                              style: const TextStyle(
+                                color: Color(0xFFFE001A),
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
 
                   // Quick Auto-fill button if OTP is detected in clipboard
                   if (_detectedClipboardOtp != null && otpText.length < 6) ...[

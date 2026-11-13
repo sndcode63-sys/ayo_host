@@ -18,6 +18,7 @@ import '../../widgets/inputs.dart';
 import '../../widgets/listing_preview.dart';
 import '../../widgets/chrome.dart';
 import '../../widgets/app_image_view.dart';
+import '../../widgets/ayo_plate_editor_dialog.dart';
 import '../dashboard/main_shell.dart';
 import '../documents/vehicle_documents_screen.dart';
 
@@ -38,16 +39,58 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
     super.dispose();
   }
 
-  Future<void> _pickAndUploadPhoto(BuildContext context, {String? slot}) async {
-    final ctrl = context.read<OnboardingController>();
+  Future<void> _pickAndUploadPhoto(
+    BuildContext context, {
+    String? slot,
+    String? slotName,
+    ImageSource source = ImageSource.gallery,
+  }) async {
     final picker = ImagePicker();
     final XFile? picked = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 85,
+      source: source,
+      imageQuality: 92,
     );
     if (picked == null || !mounted) return;
 
-    await ctrl.uploadVehiclePhoto(File(picked.path), slot: slot);
+    File finalFile = File(picked.path);
+
+    // If photo is front, rear, or exterior, show AYO plate cover editor (Matching Image 2)
+    final isInterior = slot == 'INTERIOR';
+    if (!isInterior) {
+      final withPlate = await AyoPlateEditorDialog.show(
+        this.context,
+        imageFile: finalFile,
+        title: 'Place AYO Plate on ${slotName ?? "Vehicle"}',
+        slotName: slotName,
+      );
+      if (withPlate != null) {
+        finalFile = withPlate;
+      }
+    }
+
+    if (!mounted) return;
+    await this.context.read<OnboardingController>().uploadVehiclePhoto(finalFile, slot: slot);
+  }
+
+  Future<void> _editExistingPhotoPlate(
+    BuildContext context, {
+    required String slot,
+    required String slotName,
+    String? localPath,
+  }) async {
+    if (localPath != null && File(localPath).existsSync()) {
+      final edited = await AyoPlateEditorDialog.show(
+        this.context,
+        imageFile: File(localPath),
+        title: 'Adjust AYO Plate on $slotName',
+        slotName: slotName,
+      );
+      if (edited != null && mounted) {
+        await this.context.read<OnboardingController>().uploadVehiclePhoto(edited, slot: slot);
+      }
+    } else {
+      _showAddPhotoOptions(this.context, slot: slot, slotName: slotName);
+    }
   }
 
   void _showAddPhotoOptions(BuildContext context, {String? slot, String? slotName}) {
@@ -69,13 +112,39 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
                 child: ListTile(
                   leading: const CircleAvatar(
                     backgroundColor: AppColors.primarySoft,
-                    child: Icon(Icons.photo_library_rounded, color: AppColors.primary),
+                    child: Icon(Icons.camera_alt_rounded, color: AppColors.primary),
                   ),
-                  title: const Text('Choose Photo from Gallery'),
-                  subtitle: const Text('Pick image file from phone'),
+                  title: const Text('Take Photo with Camera'),
+                  subtitle: const Text('Capture new photo with phone camera'),
                   onTap: () {
                     Navigator.pop(ctx);
-                    _pickAndUploadPhoto(context, slot: slot);
+                    _pickAndUploadPhoto(
+                      context,
+                      slot: slot,
+                      slotName: slotName,
+                      source: ImageSource.camera,
+                    );
+                  },
+                ),
+              ),
+              const Divider(),
+              Material(
+                color: Colors.transparent,
+                child: ListTile(
+                  leading: const CircleAvatar(
+                    backgroundColor: Color(0xFFF1F3F6),
+                    child: Icon(Icons.photo_library_outlined, color: AppColors.textSecondary),
+                  ),
+                  title: const Text('Choose from Phone Gallery'),
+                  subtitle: const Text('Pick photo from your device gallery'),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _pickAndUploadPhoto(
+                      context,
+                      slot: slot,
+                      slotName: slotName,
+                      source: ImageSource.gallery,
+                    );
                   },
                 ),
               ),
@@ -725,36 +794,43 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
                 _PhotoSlotCard(
                   title: 'Front Angle',
                   subtitle: 'Cover photo (Mandatory)',
-                  icon: Icons.directions_car_rounded,
+                  icon: ob.vehicleType == 'BIKE' ? Icons.two_wheeler_rounded : Icons.directions_car_rounded,
                   badge: '★ COVER',
                   isCover: true,
                   imageUrl: ob.frontPhotoUrl,
                   localPath: ob.frontPhotoLocalPath,
                   onTap: () => _showAddPhotoOptions(context, slot: 'FRONT', slotName: 'Front Angle (Cover)'),
+                  onEditPlate: ob.frontPhotoLocalPath != null
+                      ? () => _editExistingPhotoPlate(context, slot: 'FRONT', slotName: 'Front Angle (Cover)', localPath: ob.frontPhotoLocalPath)
+                      : null,
                   onDelete: () => _confirmDeletePhoto(context, 'Front Cover', () => ob.removeFrontPhoto()),
                 ),
 
                 // Slot 2: Interior / Cockpit - Mandatory
                 _PhotoSlotCard(
-                  title: 'Interior / Cockpit',
-                  subtitle: 'Dashboard & seats',
-                  icon: Icons.airline_seat_recline_extra_rounded,
+                  title: ob.vehicleType == 'BIKE' ? 'Cockpit & Handle' : 'Interior / Cockpit',
+                  subtitle: ob.vehicleType == 'BIKE' ? 'Speedometer & controls' : 'Dashboard & seats',
+                  icon: ob.vehicleType == 'BIKE' ? Icons.speed_rounded : Icons.airline_seat_recline_extra_rounded,
                   badge: 'MANDATORY',
                   imageUrl: ob.interiorPhotoUrl,
                   localPath: ob.interiorPhotoLocalPath,
                   onTap: () => _showAddPhotoOptions(context, slot: 'INTERIOR', slotName: 'Interior / Cockpit'),
+                  onEditPlate: null, // Interior doesn't have exterior number plate
                   onDelete: () => _confirmDeletePhoto(context, 'Interior', () => ob.removeInteriorPhoto()),
                 ),
 
                 // Slot 3: Rear & Trunk - Mandatory
                 _PhotoSlotCard(
-                  title: 'Rear & Trunk',
-                  subtitle: 'Cargo & charging',
+                  title: ob.vehicleType == 'BIKE' ? 'Rear & Exhaust' : 'Rear & Trunk',
+                  subtitle: ob.vehicleType == 'BIKE' ? 'Tail light & tire' : 'Cargo & charging',
                   icon: Icons.sensor_door_outlined,
                   badge: 'MANDATORY',
                   imageUrl: ob.rearPhotoUrl,
                   localPath: ob.rearPhotoLocalPath,
                   onTap: () => _showAddPhotoOptions(context, slot: 'REAR', slotName: 'Rear & Trunk'),
+                  onEditPlate: ob.rearPhotoLocalPath != null
+                      ? () => _editExistingPhotoPlate(context, slot: 'REAR', slotName: 'Rear & Trunk', localPath: ob.rearPhotoLocalPath)
+                      : null,
                   onDelete: () => _confirmDeletePhoto(context, 'Rear & Trunk', () => ob.removeRearPhoto()),
                 ),
 
@@ -969,6 +1045,7 @@ class _PhotoSlotCard extends StatelessWidget {
     this.localPath,
     required this.onTap,
     required this.onDelete,
+    this.onEditPlate,
     this.badge,
     this.isCover = false,
   });
@@ -980,6 +1057,7 @@ class _PhotoSlotCard extends StatelessWidget {
   final String? localPath;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback? onEditPlate;
   final String? badge;
   final bool isCover;
 
@@ -1050,6 +1128,31 @@ class _PhotoSlotCard extends StatelessWidget {
                         fontSize: 9,
                         color: isCover ? AppColors.primary : Colors.white,
                         fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              // AYO Plate adjustment button
+              if (onEditPlate != null)
+                Positioned(
+                  top: 6,
+                  right: 36,
+                  child: InkWell(
+                    onTap: onEditPlate,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'AYO',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
                       ),
                     ),
                   ),

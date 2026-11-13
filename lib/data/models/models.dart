@@ -173,6 +173,7 @@ class Vehicle {
   final List<String> photos;
   final double dailyRate; // in Rupees
   final double hourlyRate; // in Rupees
+  final String? vehicleType; // 'CAR' or 'BIKE'
   final String? address;
   final String? description;
   // IoT / device status (from GET /vehicles/host/my-cars)
@@ -195,6 +196,7 @@ class Vehicle {
     required this.status,
     required this.dailyRate,
     this.hourlyRate = 0,
+    this.vehicleType,
     this.imageUrl,
     this.photos = const [],
     this.address,
@@ -204,6 +206,12 @@ class Vehicle {
     this.lat,
     this.lng,
   });
+
+  bool get isBike =>
+      (vehicleType?.toUpperCase() == 'BIKE') ||
+      bodyType.toLowerCase().contains('bike') ||
+      bodyType.toLowerCase().contains('scooter') ||
+      bodyType.toLowerCase().contains('cruiser');
 
   bool get isPaused => status.toUpperCase() == 'PAUSED';
   bool get canControl => status.toUpperCase() == 'ACTIVE' || status.toUpperCase() == 'PAUSED';
@@ -370,6 +378,7 @@ class Vehicle {
       status: statusStr,
       dailyRate: rate,
       hourlyRate: hRate,
+      vehicleType: json['vehicle_type']?.toString(),
       imageUrl: img,
       photos: photoList,
       address: json['address'] ?? loc['address'],
@@ -1045,7 +1054,7 @@ class ListingFeeOrderResponse {
       rawAmount = inr * 100;
     }
 
-    // If amount is small (e.g. 499 INR), convert to paise (49900)
+    // Ensure amount in paise for Razorpay checkout
     if (rawAmount > 0 && rawAmount < 1000) {
       rawAmount = rawAmount * 100;
     }
@@ -1085,18 +1094,76 @@ class GcsPresignResponse {
     this.expiresIn = 300,
   });
 
-  factory GcsPresignResponse.fromJson(Map<String, dynamic> json) {
+  factory GcsPresignResponse.fromJson(Map<String, dynamic> rawJson) {
+    // 1. Unwrap nested 'data' map if present
+    final json = rawJson['data'] is Map<String, dynamic>
+        ? rawJson['data'] as Map<String, dynamic>
+        : rawJson;
+
     final headersMap = <String, String>{};
     if (json['headers'] is Map) {
       (json['headers'] as Map).forEach((k, v) {
-        headersMap[k.toString()] = v.toString();
+        if (k != null && v != null) {
+          headersMap[k.toString()] = v.toString();
+        }
       });
     }
+
+    // 2. Discover upload URL from any possible key name
+    String uploadUrl = (json['upload_url'] ??
+            json['uploadUrl'] ??
+            json['url'] ??
+            json['presigned_url'] ??
+            json['presignedUrl'] ??
+            json['signed_url'] ??
+            json['signedUrl'] ??
+            json['put_url'] ??
+            '')
+        .toString()
+        .trim();
+
+    // 3. Discover file key / storage path from any possible key name
+    String key = (json['key'] ??
+            json['photo_key'] ??
+            json['file_key'] ??
+            json['document_key'] ??
+            json['doc_key'] ??
+            json['s3_key'] ??
+            json['gcs_key'] ??
+            json['path'] ??
+            json['fileName'] ??
+            json['file_name'] ??
+            '')
+        .toString()
+        .trim();
+
+    // 4. If key is missing, check public_url or derive key from uploadUrl path
+    if (key.isEmpty) {
+      final pub = (json['public_url'] ?? json['publicUrl'] ?? json['file_url'] ?? '')?.toString().trim() ?? '';
+      if (pub.isNotEmpty) {
+        key = pub;
+      } else if (uploadUrl.isNotEmpty) {
+        try {
+          final uri = Uri.parse(uploadUrl);
+          final path = uri.path;
+          if (path.contains('ayo-rentals/')) {
+            key = path.substring(path.indexOf('ayo-rentals/') + 'ayo-rentals/'.length);
+          } else if (path.startsWith('/')) {
+            key = path.substring(1);
+          } else {
+            key = path;
+          }
+        } catch (_) {}
+      }
+    }
+
+    final method = (json['method'] ?? 'PUT').toString().toUpperCase();
+
     return GcsPresignResponse(
-      key: json['key']?.toString() ?? json['photo_key']?.toString() ?? json['file_key']?.toString() ?? json['s3_key']?.toString() ?? '',
-      uploadUrl: json['upload_url']?.toString() ?? '',
-      method: json['method']?.toString() ?? 'PUT',
-      headers: headersMap.isNotEmpty ? headersMap : const {'Content-Type': 'image/jpeg'},
+      key: key,
+      uploadUrl: uploadUrl,
+      method: method.isNotEmpty ? method : 'PUT',
+      headers: headersMap,
       expiresIn: json['expires_in'] is int
           ? json['expires_in']
           : int.tryParse(json['expires_in']?.toString() ?? json['expires_in_seconds']?.toString() ?? '300') ?? 300,
@@ -1114,29 +1181,77 @@ class GcsPresignResponse {
 class ListingFeeConfig {
   final int feeInr;
   final int feePaise;
+  final int carListingFeeInr;
+  final int carListingFeePaise;
+  final int bikeListingFeeInr;
+  final int bikeListingFeePaise;
   final String currency;
   final bool bypass;
   final String description;
 
   const ListingFeeConfig({
-    required this.feeInr,
-    required this.feePaise,
+    this.feeInr = 0,
+    this.feePaise = 0,
+    this.carListingFeeInr = 0,
+    this.carListingFeePaise = 0,
+    this.bikeListingFeeInr = 0,
+    this.bikeListingFeePaise = 0,
     this.currency = 'INR',
     this.bypass = false,
     this.description = '',
   });
 
-  String get display => bypass ? 'Waived' : '₹$feeInr';
+  String get display => bypass ? 'Waived' : (feeInr > 0 ? '₹$feeInr' : '');
+
+  int feeInrFor(String? type) {
+    if (type?.toUpperCase() == 'BIKE') {
+      return bikeListingFeeInr > 0 ? bikeListingFeeInr : feeInr;
+    }
+    return carListingFeeInr > 0 ? carListingFeeInr : feeInr;
+  }
+
+  int feePaiseFor(String? type) {
+    if (type?.toUpperCase() == 'BIKE') {
+      return bikeListingFeePaise > 0 ? bikeListingFeePaise : feePaise;
+    }
+    return carListingFeePaise > 0 ? carListingFeePaise : feePaise;
+  }
+
+  String displayFor(String? type) {
+    if (bypass) return 'Waived';
+    final amt = feeInrFor(type);
+    return amt > 0 ? '₹$amt' : (feeInr > 0 ? '₹$feeInr' : '');
+  }
 
   factory ListingFeeConfig.fromJson(Map<String, dynamic> json) {
     int toInt(dynamic v) => v is num ? v.round() : int.tryParse(v?.toString() ?? '') ?? 0;
+
+    final carInr = json['car_listing_fee_inr'] != null
+        ? toInt(json['car_listing_fee_inr'])
+        : (json['listing_fee_inr'] != null ? toInt(json['listing_fee_inr']) : 0);
+    final carPaise = json['car_listing_fee_paise'] != null
+        ? toInt(json['car_listing_fee_paise'])
+        : (json['listing_fee_paise'] != null ? toInt(json['listing_fee_paise']) : carInr * 100);
+
+    final bikeInr = json['bike_listing_fee_inr'] != null
+        ? toInt(json['bike_listing_fee_inr'])
+        : (json['listing_fee_inr'] != null ? toInt(json['listing_fee_inr']) : 0);
+    final bikePaise = json['bike_listing_fee_paise'] != null
+        ? toInt(json['bike_listing_fee_paise'])
+        : (json['listing_fee_paise'] != null ? toInt(json['listing_fee_paise']) : bikeInr * 100);
+
     final paise = json['listing_fee_paise'] != null
         ? toInt(json['listing_fee_paise'])
-        : toInt(json['listing_fee_inr']) * 100;
+        : (json['listing_fee_inr'] != null ? toInt(json['listing_fee_inr']) * 100 : carPaise);
     final inr = json['listing_fee_inr'] != null ? toInt(json['listing_fee_inr']) : paise ~/ 100;
+
     return ListingFeeConfig(
       feeInr: inr,
       feePaise: paise,
+      carListingFeeInr: carInr,
+      carListingFeePaise: carPaise,
+      bikeListingFeeInr: bikeInr,
+      bikeListingFeePaise: bikePaise,
       currency: json['currency']?.toString() ?? 'INR',
       bypass: json['listing_fee_bypass'] == true,
       description: json['description']?.toString() ?? '',

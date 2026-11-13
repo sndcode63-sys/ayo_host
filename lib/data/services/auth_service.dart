@@ -21,6 +21,8 @@ class AuthService {
     return '+91$clean';
   }
 
+  static String? _lastReqId;
+
   /// 1. Send 6-digit OTP via MSG91 (POST /api/v1/auth/send-otp)
   static Future<bool> sendOtp({
     required String phone,
@@ -41,6 +43,8 @@ class AuthService {
       final data = response['data'] is Map<String, dynamic>
           ? response['data'] as Map<String, dynamic>
           : response;
+
+      _lastReqId = data['req_id']?.toString() ?? data['request_id']?.toString();
 
       final success = data['success'] == true;
       final msg = data['message']?.toString() ?? 'OTP sent successfully';
@@ -89,6 +93,7 @@ class AuthService {
         'otp': otp.trim(),
         'role': role,
         'consent_accepted': true,
+        if (_lastReqId != null && _lastReqId!.isNotEmpty) 'req_id': _lastReqId,
         if (fcmToken != null && fcmToken.isNotEmpty) 'fcm_token': fcmToken,
         if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
       };
@@ -103,6 +108,17 @@ class AuthService {
           : response;
 
       final authResponse = AuthResponse.fromJson(data);
+
+      // BLOCK CUSTOMER ACCOUNTS FROM HOST APP
+      if (authResponse.user.role.toUpperCase() == 'CUSTOMER') {
+        LoggerService.warning('Blocked customer account login on Host app: ${authResponse.user.id} (${authResponse.user.phone})');
+        ToastService.showError(
+          'This mobile number is already registered as a Customer. Please use a Host account or register with a different number.',
+        );
+        throw Exception(
+          'This mobile number is already registered as a Customer. Please use a Host account or register with a different number.',
+        );
+      }
 
       await SecureStorageService.saveAccessToken(authResponse.accessToken);
       await SecureStorageService.saveUserId(authResponse.user.id);
@@ -208,6 +224,16 @@ class AuthService {
 
       final authResponse = AuthResponse.fromJson(response['data']);
 
+      if (authResponse.user.role.toUpperCase() == 'CUSTOMER') {
+        LoggerService.warning('Blocked customer account login on Host app: ${authResponse.user.id}');
+        ToastService.showError(
+          'This mobile number is already registered as a Customer. Please use a Host account or register with a different number.',
+        );
+        throw Exception(
+          'This mobile number is already registered as a Customer. Please use a Host account or register with a different number.',
+        );
+      }
+
       await SecureStorageService.saveAccessToken(authResponse.accessToken);
       await SecureStorageService.saveUserId(authResponse.user.id);
       await SecureStorageService.saveUserRole(authResponse.user.role);
@@ -232,6 +258,16 @@ class AuthService {
       );
 
       final authResponse = AuthResponse.fromJson(response['data']);
+
+      if (authResponse.user.role.toUpperCase() == 'CUSTOMER') {
+        LoggerService.warning('Blocked customer account login on Host app: ${authResponse.user.id}');
+        ToastService.showError(
+          'This mobile number is already registered as a Customer. Please use a Host account or register with a different number.',
+        );
+        throw Exception(
+          'This mobile number is already registered as a Customer. Please use a Host account or register with a different number.',
+        );
+      }
 
       await SecureStorageService.saveAccessToken(authResponse.accessToken);
       await SecureStorageService.saveUserId(authResponse.user.id);

@@ -22,6 +22,8 @@ import '../documents/vehicle_documents_screen.dart';
 import '../onboarding/host_profile_setup_screen.dart';
 import '../onboarding/payout_setup_screen.dart';
 import '../onboarding/vehicle_details_screen.dart';
+import '../trips/scan_handover_screen.dart';
+import '../trips/upcoming_trips_screen.dart';
 
 /// AYO Host Dashboard — revenue, fleet stats, next handover, My Cars, current geolocation.
 class DashboardScreen extends StatelessWidget {
@@ -81,11 +83,13 @@ class DashboardScreen extends StatelessWidget {
                           '${vehicle.year} · ${vehicle.bodyType} · ${vehicle.transmission}',
                           style: AppText.body.copyWith(fontSize: 11, color: AppColors.textMuted),
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          vehicle.plate.isNotEmpty ? vehicle.plate : 'Reg Pending',
-                          style: AppText.captionCaps.copyWith(fontSize: 10, color: AppColors.primary, fontWeight: FontWeight.bold),
-                        ),
+                        if (vehicle.plate.isNotEmpty) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            vehicle.plate,
+                            style: AppText.captionCaps.copyWith(fontSize: 10, color: AppColors.primary, fontWeight: FontWeight.bold),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -169,7 +173,7 @@ class DashboardScreen extends StatelessWidget {
           ),
         ),
       ),
-      body: dash.loading && dash.stats == null
+      body: dash.stats == null
           ? const DashboardShimmer()
           : RefreshIndicator(
               color: const Color(0xFFFE001A),
@@ -209,6 +213,21 @@ class DashboardScreen extends StatelessWidget {
                       const SizedBox(height: 10),
                       for (final t in dash.activeTrips) ...[
                         _TripActionCard(trip: t, isActive: true),
+                        const SizedBox(height: 10),
+                      ],
+                      const SizedBox(height: 10),
+                    ],
+                    if (dash.upcomingTrips.isNotEmpty) ...[
+                      GestureDetector(
+                        onTap: () => Navigator.pushNamed(context, UpcomingTripsScreen.route),
+                        child: SectionHeader(
+                          title: 'Upcoming Trips & Handover',
+                          trailing: 'View All (${dash.upcomingTrips.length})',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      for (final t in dash.upcomingTrips.take(2)) ...[
+                        _TripActionCard(trip: t, isActive: false),
                         const SizedBox(height: 10),
                       ],
                       const SizedBox(height: 10),
@@ -970,10 +989,10 @@ class _CarTile extends StatelessWidget {
                     children: [
                       Text(vehicle.name,
                           style: AppText.sectionTitle.copyWith(fontSize: 14)),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 4),
                       Text(
-                        '${vehicle.displayPrice} · ${vehicle.plate.isNotEmpty ? vehicle.plate : 'Reg Pending'}',
-                        style: AppText.body.copyWith(fontSize: 11, color: AppColors.textSecondary),
+                        vehicle.displayPrice,
+                        style: AppText.body.copyWith(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
                       ),
                     ],
                   ),
@@ -1088,10 +1107,32 @@ class _TripActionCard extends StatelessWidget {
                     icon: const Icon(Icons.flag_rounded, size: 16, color: Colors.white),
                     label: const Text('End Trip / Car Returned', style: TextStyle(color: Colors.white)),
                   )
-                : OutlinedButton.icon(
-                    onPressed: () => _confirmCancel(context),
-                    icon: const Icon(Icons.cancel_outlined, size: 16),
-                    label: const Text('Cancel Trip'),
+                : Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF0F52BA),
+                            elevation: 0,
+                          ),
+                          onPressed: () => Navigator.pushNamed(
+                            context,
+                            ScanHandoverScreen.route,
+                            arguments: trip,
+                          ),
+                          icon: const Icon(Icons.qr_code_scanner_rounded, size: 16, color: Colors.white),
+                          label: const Text('Scan QR', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () => _confirmCancel(context),
+                          child: const Text('Cancel'),
+                        ),
+                      ),
+                    ],
                   ),
           ),
         ],

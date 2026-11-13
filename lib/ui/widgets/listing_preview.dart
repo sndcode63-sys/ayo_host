@@ -270,7 +270,7 @@ class ListingPreviewCard extends StatelessWidget {
                 if (ob.hourlyRentals)
                   _PreviewRow(
                     label: 'Hourly Rate',
-                    value: '₹${ob.effectiveHourlyRate.toInt()} / hr (min 3 hrs)',
+                    value: '₹${ob.effectiveHourlyRate.toInt()} / hr (min 6 hrs)',
                   ),
                 _PreviewRow(label: 'Host Delivery', value: ob.hostDelivery ? 'Available' : 'Not offered'),
                 _PreviewRow(label: 'Photos', value: '${photos.length} uploaded · ${ob.mandatoryPhotosCount} / 3 mandatory'),

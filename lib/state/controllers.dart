@@ -37,8 +37,25 @@ class AuthController extends ChangeNotifier {
   Future<void> checkSession() async {
     final isAuth = await _repo.isAuthenticated();
     if (isAuth) {
+      final role = await SecureStorageService.getUserRole();
+      if (role?.toUpperCase() == 'CUSTOMER') {
+        await _repo.logout();
+        user = null;
+        host = null;
+        onboardingStatus = null;
+        notifyListeners();
+        return;
+      }
       try {
         user = await _repo.getAuthMe();
+        if (user?.role.toUpperCase() == 'CUSTOMER') {
+          await _repo.logout();
+          user = null;
+          host = null;
+          onboardingStatus = null;
+          notifyListeners();
+          return;
+        }
         onboardingStatus = await _repo.getOnboardingStatus();
         host = onboardingStatus?.profile;
         notifyListeners();
@@ -103,7 +120,12 @@ class AuthController extends ChangeNotifier {
       return true;
     } catch (e) {
       error = e.toString();
-      ToastService.showError('Invalid OTP code. Please check and retry.');
+      final errStr = e.toString();
+      if (errStr.contains('already registered as a Customer')) {
+        ToastService.showError('This mobile number is already registered for Customer. Please use a Host account or register with a different number.');
+      } else {
+        ToastService.showError('Invalid OTP code. Please check and retry.');
+      }
       return false;
     } finally {
       loading = false;
@@ -212,6 +234,21 @@ class DashboardController extends ChangeNotifier {
   PaymentsConfig? paymentsConfig;
   bool loading = false;
   String? error;
+
+  void reset() {
+    stats = null;
+    vehicles = [];
+    upcomingTrips = [];
+    activeTrips = [];
+    hostProfile = null;
+    supportConfig = null;
+    platformPolicies = null;
+    onboardingStatus = null;
+    paymentsConfig = null;
+    loading = false;
+    error = null;
+    notifyListeners();
+  }
 
   Future<void> load() async {
     loading = true;
@@ -374,6 +411,35 @@ class DashboardController extends ChangeNotifier {
     }
   }
 
+  /// Direct QR Handover scan via POST /api/v1/trips/scan-handover
+  Future<bool> scanDirectHandover({
+    required String handoverToken,
+    double? hostLat,
+    double? hostLng,
+  }) async {
+    try {
+      var lat = hostLat;
+      var lng = hostLng;
+      if (lat == null || lng == null) {
+        final pos = await LocationService.currentPosition();
+        if (pos != null) {
+          lat = pos.lat;
+          lng = pos.lng;
+        }
+      }
+      await HostService.scanHandover(
+        handoverToken: handoverToken,
+        hostLat: lat,
+        hostLng: lng,
+      );
+      await load();
+      return true;
+    } catch (e) {
+      ToastService.showError('Handover scan failed: $e');
+      return false;
+    }
+  }
+
   // ─────────── Trip end / cancel ───────────
   Future<bool> endTrip(String tripId) async {
     try {
@@ -441,6 +507,12 @@ class ProfileController extends ChangeNotifier {
   HostProfile? profile;
   bool loading = false;
 
+  void reset() {
+    profile = null;
+    loading = false;
+    notifyListeners();
+  }
+
   Future<void> load() async {
     loading = true;
     notifyListeners();
@@ -473,8 +545,8 @@ class OnboardingController extends ChangeNotifier {
   OnboardingController(this._repo);
   final OnboardingRepository _repo;
 
-  // Body/Class Types list
-  List<String> bodyTypes = [
+  // Car vs Bike body types
+  static const List<String> carBodyTypes = [
     'Sedan',
     'SUV',
     'Electric',
@@ -483,6 +555,19 @@ class OnboardingController extends ChangeNotifier {
     'Luxury',
     'Convertible',
   ];
+
+  static const List<String> bikeBodyTypes = [
+    'Cruiser Bike',
+    'Sports Bike',
+    'Scooter',
+    'Commuter',
+    'Touring / Adventure',
+    'Electric Scooter',
+    'Cafe Racer',
+  ];
+
+  // Active Body/Class Types list
+  List<String> bodyTypes = List.from(carBodyTypes);
 
   // Complete List of All 34 Indian States & Union Territories
   static const List<String> allIndianStates = [
@@ -524,6 +609,7 @@ class OnboardingController extends ChangeNotifier {
 
   // Vehicle listing draft fields
   String createdVehicleId = '';
+  String vehicleType = 'CAR'; // 'CAR' or 'BIKE'
   String bodyType = 'Sedan';
   String make = '';
   String model = '';
@@ -597,6 +683,28 @@ class OnboardingController extends ChangeNotifier {
   String? lastError;
   SubmitVehicleResult? submitResult;
 
+  void setVehicleType(String type) {
+    final clean = type.trim().toUpperCase() == 'BIKE' ? 'BIKE' : 'CAR';
+    if (vehicleType == clean) return;
+    vehicleType = clean;
+    if (clean == 'BIKE') {
+      bodyTypes = List.from(bikeBodyTypes);
+      bodyType = 'Cruiser Bike';
+      seatingCapacity = 2;
+      transmission = 'Manual';
+      drivetrain = 'Chain Drive';
+      fuelType = 'Petrol';
+    } else {
+      bodyTypes = List.from(carBodyTypes);
+      bodyType = 'Sedan';
+      seatingCapacity = 5;
+      transmission = 'Automatic';
+      drivetrain = '2WD';
+      fuelType = 'Petrol';
+    }
+    notifyListeners();
+  }
+
   void setBodyType(String v) {
     bodyType = v;
     notifyListeners();
@@ -627,7 +735,8 @@ class OnboardingController extends ChangeNotifier {
   double get effectiveHourlyRate =>
       hourlyRate > 0 ? hourlyRate : (dailyRate > 0 ? (dailyRate / 10).roundToDouble() : 0);
 
-  double get estimatedHourlyTrip => effectiveHourlyRate > 0 ? effectiveHourlyRate * 3 : 0;
+  // Minimum rental duration is 6 hours
+  double get estimatedHourlyTrip => effectiveHourlyRate > 0 ? effectiveHourlyRate * 6 : 0;
 
   void setFrontPhoto(String url) {
     frontPhotoUrl = url.trim();
@@ -730,6 +839,8 @@ class OnboardingController extends ChangeNotifier {
     saving = false;
     uploadingPhoto = false;
     documentsLoading = false;
+    vehicleType = 'CAR';
+    bodyTypes = List.from(carBodyTypes);
     bodyType = 'Sedan';
     make = '';
     model = '';
@@ -1079,6 +1190,7 @@ class OnboardingController extends ChangeNotifier {
       final validPhotos = photoUrls.where((u) => u.startsWith('http')).toList();
 
       final payload = <String, dynamic>{
+        'vehicle_type': vehicleType.toUpperCase(),
         'make': make.trim(),
         'model': model.trim(),
         'year': yearInt,
@@ -1338,6 +1450,19 @@ class NotificationController extends ChangeNotifier {
   final Set<String> _shownNotificationIds = <String>{};
   bool _initializedShownIds = false;
 
+  void reset() {
+    items = [];
+    unread = 0;
+    loading = false;
+    loadingMore = false;
+    hasMore = false;
+    error = null;
+    _page = 1;
+    _shownNotificationIds.clear();
+    _initializedShownIds = false;
+    notifyListeners();
+  }
+
   List<AppNotification> get unreadItems => items.where((e) => !e.isRead).toList();
 
   Future<void> refreshUnread() async {
@@ -1569,6 +1694,13 @@ class EarningsController extends ChangeNotifier {
   EarningsStats? stats;
   bool loading = false;
   String? error;
+
+  void reset() {
+    stats = null;
+    loading = false;
+    error = null;
+    notifyListeners();
+  }
 
   Future<void> load() async {
     loading = true;

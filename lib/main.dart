@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'core/theme/app_theme.dart';
 import 'core/utils/animation_utils.dart';
+import 'data/models/models.dart';
 import 'data/repositories/repositories.dart';
 import 'data/services/api_client.dart';
 import 'state/controllers.dart';
@@ -19,6 +20,8 @@ import 'ui/screens/onboarding/host_profile_setup_screen.dart';
 import 'ui/screens/onboarding/payout_setup_screen.dart';
 import 'ui/screens/onboarding/vehicle_details_screen.dart';
 import 'ui/screens/onboarding/vehicle_photos_screen.dart';
+import 'ui/screens/trips/scan_handover_screen.dart';
+import 'ui/screens/trips/upcoming_trips_screen.dart';
 import 'ui/widgets/toast.dart';
 
 import 'package:firebase_core/firebase_core.dart';
@@ -44,6 +47,7 @@ void main() async {
       (route) => false,
     );
   };
+  AppToast.navigatorKey = AyoHostApp.navigatorKey;
   runApp(const AyoHostApp());
 }
 
@@ -149,6 +153,17 @@ class AyoHostApp extends StatelessWidget {
             case EarningsScreen.route:
               return AnimationUtils.smoothSlideRoute(
                 const EarningsScreen(),
+                settings: settings,
+              );
+            case UpcomingTripsScreen.route:
+              return AnimationUtils.smoothSlideRoute(
+                const UpcomingTripsScreen(),
+                settings: settings,
+              );
+            case ScanHandoverScreen.route:
+              final targetTrip = settings.arguments is Trip ? settings.arguments as Trip : null;
+              return AnimationUtils.smoothSlideRoute(
+                ScanHandoverScreen(targetTrip: targetTrip),
                 settings: settings,
               );
             default:
