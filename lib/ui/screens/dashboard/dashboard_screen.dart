@@ -101,7 +101,6 @@ class DashboardScreen extends StatelessWidget {
               const SizedBox(height: 8),
               _DetailRow(label: 'Daily Rate', value: '₹${vehicle.dailyRate.toInt()} / day'),
               _DetailRow(label: 'Hourly Rate', value: vehicle.hourlyRate > 0 ? '₹${vehicle.hourlyRate.toInt()} / hr' : 'Not Enabled'),
-              _DetailRow(label: 'Est. Monthly', value: vehicle.dailyRate > 0 ? '₹${(vehicle.dailyRate * 22).toInt()} / mo (est.)' : '₹0 / mo'),
               _DetailRow(label: 'Pickup Address', value: (vehicle.address?.isNotEmpty == true) ? vehicle.address! : 'Location not specified'),
               _DetailRow(label: 'Listing Status', value: vehicle.status),
               const SizedBox(height: 18),
@@ -873,7 +872,7 @@ class _RevenueCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '₹${(stats?.pendingPayout ?? 0).toInt()} pending payout ${stats?.payoutDate ?? ''}',
+                    '₹${(stats?.pendingPayout ?? 0).toInt()} pending payout${(stats?.payoutDate ?? '').isNotEmpty ? ' ${stats!.payoutDate}' : ''}',
                     style: AppText.body.copyWith(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
@@ -1050,7 +1049,7 @@ class _TripActionCard extends StatelessWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('End this trip?'),
-        content: const Text('Confirm the car is returned. The guest\'s security deposit refund will be triggered.'),
+        content: const Text('Confirm the car has been returned. If it is returned after the booked time, a late fee is charged automatically.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Not yet')),
           ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('End Trip')),
@@ -1058,7 +1057,21 @@ class _TripActionCard extends StatelessWidget {
       ),
     );
     if (ok == true && context.mounted) {
-      await context.read<DashboardController>().endTrip(trip.id);
+      final ctrl = context.read<DashboardController>();
+      final done = await ctrl.endTrip(trip.id);
+      final late = ctrl.lastLateReturn;
+      if (done && late != null && context.mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Late Return ⚠️'),
+            content: Text(
+              '${late['message'] ?? 'Vehicle returned late.'}\n\nLate hours: ${late['late_hours']}\nLate fee: ₹${late['late_fee_inr']}',
+            ),
+            actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK'))],
+          ),
+        );
+      }
     }
   }
 

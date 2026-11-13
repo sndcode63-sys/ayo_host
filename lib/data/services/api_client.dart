@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:dio/dio.dart';
 import '../../core/config/api_config.dart';
 import '../../core/services/logger_service.dart';
@@ -15,6 +16,16 @@ class ApiClient {
   static void Function()? onUnauthorized;
 
   late final Dio _dio;
+
+  /// Generates a standard RFC4122 v4 UUID for Idempotency-Key and tracking.
+  static String generateUuidV4() {
+    final random = Random.secure();
+    final values = List<int>.generate(16, (i) => random.nextInt(256));
+    values[6] = (values[6] & 0x0f) | 0x40; // version 4
+    values[8] = (values[8] & 0x3f) | 0x80; // variant RFC4122
+    final hex = values.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
 
   static Future<void> initialize() async {
     _instance._dio = Dio(BaseOptions(
@@ -193,6 +204,16 @@ class _AuthInterceptor extends Interceptor {
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
     }
+
+    // Auto-attach standard RFC4122 v4 Idempotency-Key on mutating requests
+    final method = options.method.toUpperCase();
+    if (method == 'POST' || method == 'PUT' || method == 'PATCH') {
+      if (!options.headers.containsKey('Idempotency-Key') &&
+          !options.headers.containsKey('idempotency-key')) {
+        options.headers['Idempotency-Key'] = ApiClient.generateUuidV4();
+      }
+    }
+
     super.onRequest(options, handler);
   }
 }

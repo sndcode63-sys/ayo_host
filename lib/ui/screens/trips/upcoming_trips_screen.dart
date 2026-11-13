@@ -6,7 +6,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../../data/models/models.dart';
 import '../../../data/services/trips_service.dart';
 import '../../../state/controllers.dart';
-import '../../widgets/number_plate_badge.dart';
 import '../notifications/notifications_screen.dart';
 import 'scan_handover_screen.dart';
 
@@ -321,9 +320,6 @@ class _TripCard extends StatelessWidget {
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 3),
-                    if (trip.vehicleId.isNotEmpty)
-                      AyoNumberPlateBadge(plate: trip.vehicleId, compact: true),
                   ],
                 ),
               ),

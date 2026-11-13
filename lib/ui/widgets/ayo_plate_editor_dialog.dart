@@ -1,13 +1,16 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import '../../core/theme/app_colors.dart';
 
-/// Interactive Vehicle Photo Editor to place the official AYO Red Plate
-/// directly over the vehicle's physical license plate (Matching Reference UI Image 2).
-/// When submitted, it renders the label permanently into the image before uploading to server.
+/// Vehicle photo editor: the host places the AYO plate (white "AYO" on brand red)
+/// exactly over the vehicle's real number plate. The plate is then drawn permanently
+/// into the photo at the photo's real resolution and THAT image is uploaded, so the
+/// AYO plate shows everywhere the photo is displayed (app, customer app, web).
+///
+/// Gestures on the photo: drag = move, pinch = resize, two-finger twist = rotate.
 class AyoPlateEditorDialog extends StatefulWidget {
   const AyoPlateEditorDialog({
     super.key,
@@ -43,55 +46,176 @@ class AyoPlateEditorDialog extends StatefulWidget {
   State<AyoPlateEditorDialog> createState() => _AyoPlateEditorDialogState();
 }
 
+/// Plate placement, stored relative to the photo so preview and export match exactly.
+class _PlateSpec {
+  _PlateSpec();
+
+  double cx = 0.5; // centre x, 0..1 of photo width
+  double cy = 0.72; // centre y, 0..1 of photo height
+  double widthFrac = 0.18; // plate width as fraction of photo width
+  double angle = 0; // radians
+}
+
+const double _kPlateAspect = 3.4; // width : height
+
+/// Draws the photo and (optionally) the AYO plate. Used by BOTH the live preview and
+/// the final export, so what the host sees is exactly what gets uploaded.
+void _paintComposite(Canvas canvas, Size size, ui.Image image, _PlateSpec? plate) {
+  canvas.drawImageRect(
+    image,
+    Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+    Offset.zero & size,
+    Paint()..filterQuality = FilterQuality.high,
+  );
+  if (plate == null) return;
+
+  final w = size.width * plate.widthFrac;
+  final h = w / _kPlateAspect;
+
+  canvas.save();
+  canvas.translate(plate.cx * size.width, plate.cy * size.height);
+  canvas.rotate(plate.angle);
+
+  final outer = RRect.fromRectAndRadius(
+    Rect.fromCenter(center: Offset.zero, width: w, height: h),
+    Radius.circular(h * 0.14),
+  );
+
+  // soft contact shadow so the plate sits on the bumper
+  canvas.drawRRect(
+    outer.shift(Offset(0, h * 0.05)),
+    Paint()
+      ..color = Colors.black.withValues(alpha: 0.35)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, h * 0.08),
+  );
+  // light metal frame
+  canvas.drawRRect(outer, Paint()..color = const Color(0xFFE9EAEE));
+  // red plate face
+  final inset = h * 0.07;
+  final face = RRect.fromRectAndRadius(
+    Rect.fromCenter(center: Offset.zero, width: w - inset * 2, height: h - inset * 2),
+    Radius.circular(h * 0.10),
+  );
+  canvas.drawRRect(
+    face,
+    Paint()
+      ..shader = ui.Gradient.linear(
+        Offset(0, -h / 2),
+        Offset(0, h / 2),
+        [AppColors.primary, Color.lerp(AppColors.primary, Colors.black, 0.18)!],
+      ),
+  );
+
+  // white AYO text, auto-fit to the plate face
+  final tp = TextPainter(
+    text: TextSpan(
+      text: 'AYO',
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: h * 0.62,
+        fontWeight: FontWeight.w900,
+        letterSpacing: h * 0.06,
+        height: 1.0,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  final maxTextW = face.width * 0.86;
+  if (tp.width > maxTextW) {
+    final scale = maxTextW / tp.width;
+    canvas.scale(scale);
+  }
+  tp.paint(canvas, Offset(-tp.width / 2, -tp.height / 2));
+
+  canvas.restore();
+}
+
+class _PhotoPainter extends CustomPainter {
+  _PhotoPainter(this.image, this.plate);
+
+  final ui.Image image;
+  final _PlateSpec? plate;
+
+  @override
+  void paint(Canvas canvas, Size size) => _paintComposite(canvas, size, image, plate);
+
+  @override
+  bool shouldRepaint(covariant _PhotoPainter old) => true;
+}
+
 class _AyoPlateEditorDialogState extends State<AyoPlateEditorDialog> {
-  final GlobalKey _captureAreaKey = GlobalKey();
-
-  bool _applyPlate = true;
+  ui.Image? _image;
+  String? _loadError;
+  static const bool _applyPlate = true; // AYO plate is mandatory on every exterior photo
   bool _isProcessing = false;
+  final _PlateSpec _plate = _PlateSpec();
 
-  // Position of the AYO sticker (relative to center of preview)
-  double _dx = 0;
-  double _dy = 60; // default slightly lower where front bumpers usually are
-  double _plateWidth = 110;
+  // gesture baselines
+  late double _baseW;
+  late double _baseAngle;
 
-  Future<void> _saveAndUploadWithPlate() async {
-    if (!_applyPlate) {
-      Navigator.pop(context, widget.imageFile);
-      return;
+  @override
+  void initState() {
+    super.initState();
+    _loadImage();
+  }
+
+  @override
+  void dispose() {
+    _image?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadImage() async {
+    try {
+      final bytes = await widget.imageFile.readAsBytes();
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      if (!mounted) {
+        frame.image.dispose();
+        return;
+      }
+      setState(() => _image = frame.image);
+    } catch (e) {
+      if (mounted) setState(() => _loadError = 'Could not open this photo.');
     }
+  }
 
+  /// Renders the photo + plate at the photo's real resolution (long side capped at 2048px).
+  Future<void> _applyAndReturn() async {
+    final image = _image;
+    if (image == null) return;
     if (_isProcessing) return;
     setState(() => _isProcessing = true);
-
     try {
-      final boundary =
-          _captureAreaKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) {
-        if (mounted) Navigator.pop(context, widget.imageFile);
-        return;
-      }
+      final longSide = math.max(image.width, image.height).toDouble();
+      final k = longSide > 2048 ? 2048 / longSide : 1.0;
+      final outW = (image.width * k).round();
+      final outH = (image.height * k).round();
 
-      final ui.Image image = await boundary.toImage(pixelRatio: 2.5);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (byteData == null) {
-        if (mounted) Navigator.pop(context, widget.imageFile);
-        return;
-      }
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      _paintComposite(canvas, Size(outW.toDouble(), outH.toDouble()), image, _plate);
+      final picture = recorder.endRecording();
+      final out = await picture.toImage(outW, outH);
+      final data = await out.toByteData(format: ui.ImageByteFormat.png);
+      out.dispose();
+      picture.dispose();
+      if (data == null) throw Exception('encode failed');
 
-      final pngBytes = byteData.buffer.asUint8List();
-      final tempFile = File(
+      final file = File(
         '${Directory.systemTemp.path}/ayo_plate_${DateTime.now().millisecondsSinceEpoch}.png',
       );
-      await tempFile.writeAsBytes(pngBytes);
-
-      if (mounted) {
-        Navigator.pop(context, tempFile);
-      }
+      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
+      if (mounted) Navigator.pop(context, file);
     } catch (e) {
-      debugPrint('Plate sticker render failed: $e');
-      if (mounted) Navigator.pop(context, widget.imageFile);
-    } finally {
-      if (mounted) setState(() => _isProcessing = false);
+      debugPrint('AYO plate render failed: $e');
+      if (mounted) {
+        setState(() => _isProcessing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not apply AYO plate. Please try again.')),
+        );
+      }
     }
   }
 
@@ -107,17 +231,10 @@ class _AyoPlateEditorDialogState extends State<AyoPlateEditorDialog> {
           widget.title,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, widget.imageFile),
-            child: const Text('Skip / Raw', style: TextStyle(color: Colors.white70, fontSize: 13)),
-          ),
-        ],
       ),
       body: SafeArea(
         child: Column(
           children: [
-            // Instruction banner
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               color: Colors.white.withValues(alpha: 0.08),
@@ -125,205 +242,191 @@ class _AyoPlateEditorDialogState extends State<AyoPlateEditorDialog> {
                 children: [
                   const Icon(Icons.touch_app_rounded, color: AppColors.primary, size: 20),
                   const SizedBox(width: 10),
-                  Expanded(
+                  const Expanded(
                     child: Text(
-                      _applyPlate
-                          ? 'Drag the red AYO plate over the vehicle\'s number plate'
-                          : 'Plate sticker disabled for this photo',
-                      style: const TextStyle(color: Color(0xFFE2E4E8), fontSize: 12),
+                      'Cover the real number plate: drag to move, pinch to resize, twist to rotate',
+                      style: TextStyle(color: Color(0xFFE2E4E8), fontSize: 12),
                     ),
-                  ),
-                  Switch(
-                    value: _applyPlate,
-                    activeThumbColor: AppColors.primary,
-                    onChanged: (val) => setState(() => _applyPlate = val),
                   ),
                 ],
               ),
             ),
-
-            // Main Interactive Canvas
-            Expanded(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: RepaintBoundary(
-                    key: _captureAreaKey,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // Base Vehicle Image
-                          Image.file(
-                            widget.imageFile,
-                            fit: BoxFit.contain,
-                          ),
-
-                          // Draggable AYO Number Plate Sticker
-                          if (_applyPlate)
-                            Transform.translate(
-                              offset: Offset(_dx, _dy),
-                              child: GestureDetector(
-                                onPanUpdate: (details) {
-                                  setState(() {
-                                    _dx += details.delta.dx;
-                                    _dy += details.delta.dy;
-                                  });
-                                },
-                                child: _AyoPlateSticker(
-                                  width: _plateWidth,
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-
-            // Bottom Controls Bar
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-              decoration: const BoxDecoration(
-                color: Color(0xFF181620),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_applyPlate) ...[
-                    Row(
-                      children: [
-                        const Text(
-                          'Plate Size:',
-                          style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
-                        ),
-                        Expanded(
-                          child: Slider(
-                            value: _plateWidth,
-                            min: 65,
-                            max: 180,
-                            activeColor: AppColors.primary,
-                            inactiveColor: Colors.white24,
-                            onChanged: (val) => setState(() => _plateWidth = val),
-                          ),
-                        ),
-                        Text(
-                          '${_plateWidth.toInt()}px',
-                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                  ],
-
-                  // Action Buttons
-                  Row(
-                    children: [
-                      // Upload raw / without plate
-                      Expanded(
-                        child: OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Colors.white24),
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: () => Navigator.pop(context, widget.imageFile),
-                          child: const Text(
-                            'Upload Raw Photo',
-                            style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Save with AYO plate
-                      Expanded(
-                        flex: 2,
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                          onPressed: _isProcessing ? null : _saveAndUploadWithPlate,
-                          child: _isProcessing
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                )
-                              : Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: const [
-                                    Icon(Icons.check_rounded, color: Colors.white, size: 18),
-                                    SizedBox(width: 6),
-                                    Text(
-                                      'Apply & Upload',
-                                      style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+            Expanded(child: _buildCanvas()),
+            _buildControls(),
           ],
         ),
       ),
     );
   }
-}
 
-/// Official AYO Bumper License Plate Sticker matching Image 2
-/// Pure Red background (#E60012) with bold white "AYO" text and subtle metallic border.
-class _AyoPlateSticker extends StatelessWidget {
-  const _AyoPlateSticker({
-    required this.width,
-  });
+  Widget _buildCanvas() {
+    final image = _image;
+    if (_loadError != null) {
+      return Center(child: Text(_loadError!, style: const TextStyle(color: Colors.white70)));
+    }
+    if (image == null) {
+      return const Center(child: CircularProgressIndicator(color: AppColors.primary));
+    }
+    return Padding(
+      padding: const EdgeInsets.all(12),
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final imgAspect = image.width / image.height;
+          var w = box.maxWidth;
+          var h = w / imgAspect;
+          if (h > box.maxHeight) {
+            h = box.maxHeight;
+            w = h * imgAspect;
+          }
+          final size = Size(w, h);
+          return Center(
+            child: SizedBox(
+              width: w,
+              height: h,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onScaleStart: (d) {
+                    _baseW = _plate.widthFrac;
+                    _baseAngle = _plate.angle;
+                    if (_applyPlate) {
+                      // tapping/starting on the photo jumps the plate to the finger
+                      setState(() {
+                        _plate.cx = (d.localFocalPoint.dx / size.width).clamp(0.0, 1.0);
+                        _plate.cy = (d.localFocalPoint.dy / size.height).clamp(0.0, 1.0);
+                      });
+                    }
+                  },
+                  onScaleUpdate: (d) {
+                    if (!_applyPlate) return;
+                    setState(() {
+                      _plate.cx = (d.localFocalPoint.dx / size.width).clamp(0.0, 1.0);
+                      _plate.cy = (d.localFocalPoint.dy / size.height).clamp(0.0, 1.0);
+                      if (d.pointerCount > 1) {
+                        _plate.widthFrac = (_baseW * d.scale).clamp(0.04, 0.6);
+                        _plate.angle = _baseAngle + d.rotation;
+                      }
+                    });
+                  },
+                  child: CustomPaint(
+                    size: size,
+                    painter: _PhotoPainter(image, _applyPlate ? _plate : null),
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
 
-  final double width;
-
-  @override
-  Widget build(BuildContext context) {
-    final height = width * 0.34;
-    final fontSize = (height * 0.58).clamp(11.0, 36.0);
-
+  Widget _buildControls() {
     return Container(
-      width: width,
-      height: height,
-      decoration: BoxDecoration(
-        color: AppColors.primary, // Signature Ayo Red
-        borderRadius: BorderRadius.circular(height * 0.18),
-        border: Border.all(
-          color: Colors.white,
-          width: (height * 0.07).clamp(1.2, 3.0),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.65),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      decoration: const BoxDecoration(
+        color: Color(0xFF181620),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_applyPlate) ...[
+            _sliderRow(
+              label: 'Size',
+              value: _plate.widthFrac,
+              min: 0.04,
+              max: 0.6,
+              onChanged: (v) => setState(() => _plate.widthFrac = v),
+            ),
+            _sliderRow(
+              label: 'Tilt',
+              value: _plate.angle.clamp(-0.8, 0.8),
+              min: -0.8,
+              max: 0.8,
+              onChanged: (v) => setState(() => _plate.angle = v),
+            ),
+            const SizedBox(height: 6),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white24),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () => Navigator.pop(context, null),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: (_isProcessing || _image == null) ? null : _applyAndReturn,
+                  child: _isProcessing
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.check_rounded, color: Colors.white, size: 18),
+                            SizedBox(width: 6),
+                            Text(
+                              'Apply & Upload',
+                              style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
-      alignment: Alignment.center,
-      child: Text(
-        'AYO',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: fontSize,
-          fontWeight: FontWeight.w900,
-          letterSpacing: 2.2,
-          height: 1.0,
+    );
+  }
+
+  Widget _sliderRow({
+    required String label,
+    required double value,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+  }) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 44,
+          child: Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
         ),
-      ),
+        Expanded(
+          child: Slider(
+            value: value.clamp(min, max),
+            min: min,
+            max: max,
+            activeColor: AppColors.primary,
+            inactiveColor: Colors.white24,
+            onChanged: onChanged,
+          ),
+        ),
+      ],
     );
   }
 }

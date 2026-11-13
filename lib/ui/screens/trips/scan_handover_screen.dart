@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -13,7 +12,6 @@ import '../../../core/theme/app_colors.dart';
 import '../../../data/models/models.dart';
 import '../../../data/services/host_service.dart';
 import '../../../state/controllers.dart';
-import '../../widgets/number_plate_badge.dart';
 
 /// Fullscreen real-time Camera QR Scanner for Pickup Handover Verification.
 /// Implements full 5-step flow matching AYO Host design specifications.
@@ -221,31 +219,7 @@ class _ScanHandoverScreenState extends State<ScanHandoverScreen>
       }
     } catch (e) {
       if (mounted) {
-        String message = 'Verification failed';
-        if (e is DioException) {
-          final resData = e.response?.data;
-          if (resData is Map) {
-            message = resData['message']?.toString() ??
-                resData['error']?['message']?.toString() ??
-                e.error?.toString() ??
-                'QR token is invalid or expired';
-          } else if (e.error != null) {
-            message = e.error.toString();
-          } else if (e.message != null) {
-            message = e.message!;
-          }
-        } else {
-          message = e.toString().replaceAll('Exception:', '').trim();
-        }
-
-        // Clean up common technical prefixes
-        message = message.replaceAll('DioException [bad response]:', '').trim();
-        if (message.startsWith('null')) {
-          message = message.replaceFirst('null', '').trim();
-        }
-        if (message.isEmpty || message.toLowerCase() == 'null') {
-          message = 'QR token is invalid or expired';
-        }
+        final message = HostService.tripErrorMessage(e);
 
         setState(() {
           _isVerifying = false;
@@ -923,7 +897,14 @@ class _ScanHandoverScreenState extends State<ScanHandoverScreen>
                           ),
                           if (plate.isNotEmpty) ...[
                             const SizedBox(height: 3),
-                            AyoNumberPlateBadge(plate: plate, compact: true),
+                            Text(
+                              plate,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF6B7280),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ],
                         ],
                       ),

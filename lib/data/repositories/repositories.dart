@@ -86,9 +86,7 @@ class HostRepository {
       final activeCount = vehicles.where((v) => v.status == 'ACTIVE' || v.isOnTrip).length;
       final totalVeh = vehicles.length;
       final occ = totalVeh > 0 ? ((activeCount / totalVeh) * 100.0) : 0.0;
-      final totalRev = earnings?.total != null && earnings!.total > 0
-          ? earnings.total
-          : vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate);
+      final totalRev = earnings?.total ?? 0.0;
 
       return DashboardStats(
         greeting: 'Welcome back,',
@@ -96,7 +94,7 @@ class HostRepository {
         totalRevenue: totalRev,
         revenueChangePercent: earnings?.changePercent ?? 0,
         pendingPayout: earnings?.pendingPayout ?? 0,
-        payoutDate: 'Auto Transfer',
+        payoutDate: '',
         activeRides: activeCount,
         totalVehicles: totalVeh,
         occupancyPercent: occ,
@@ -108,7 +106,7 @@ class HostRepository {
         totalRevenue: 0,
         revenueChangePercent: 0,
         pendingPayout: 0,
-        payoutDate: 'Auto Transfer',
+        payoutDate: '',
         activeRides: 0,
         totalVehicles: 0,
         occupancyPercent: 0,

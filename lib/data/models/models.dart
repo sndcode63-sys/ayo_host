@@ -442,7 +442,7 @@ class DashboardStats {
       totalRevenue: rev,
       revenueChangePercent: revChange,
       pendingPayout: payout,
-      payoutDate: json['payout_date']?.toString() ?? json['payoutDate']?.toString() ?? 'Auto Transfer',
+      payoutDate: json['payout_date']?.toString() ?? json['payoutDate']?.toString() ?? '',
       activeRides: active,
       totalVehicles: totalVeh,
       occupancyPercent: occ,

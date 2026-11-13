@@ -324,6 +324,13 @@ class DashboardController extends ChangeNotifier {
       paymentsConfig = results[6] as PaymentsConfig;
       activeTrips = await TripsService.getActiveTrips();
 
+      EarningsStats? earnings;
+      try {
+        earnings = await HostService.getEarnings();
+      } catch (e) {
+        LoggerService.info('Earnings unavailable for dashboard: $e');
+      }
+
       Handover? nextHandover;
       if (upcomingTrips.isNotEmpty) {
         final firstTrip = upcomingTrips.first;
@@ -337,22 +344,21 @@ class DashboardController extends ChangeNotifier {
           guestName: firstTrip.customer.name,
           timeLabel: DateFormat('MMM dd, hh:mm a').format(firstTrip.startTime),
           location: handoverLoc,
-          countdown: 'Upcoming',
+          countdown: _countdownLabel(firstTrip.startTime),
         );
       }
 
       final activeCount = vehicles.where((v) => v.status == 'ACTIVE' || v.status == 'ON_TRIP').length;
-      final totalRevenue = vehicles.fold<double>(0, (sum, v) => sum + v.dailyRate);
 
       stats = DashboardStats(
         greeting: 'Welcome back,',
         hostName: hostProfile?.firstName.isNotEmpty == true
             ? hostProfile!.firstName
             : '',
-        totalRevenue: totalRevenue,
-        revenueChangePercent: 0,
-        pendingPayout: 0,
-        payoutDate: 'Auto Transfer',
+        totalRevenue: earnings?.total ?? 0,
+        revenueChangePercent: earnings?.changePercent ?? 0,
+        pendingPayout: earnings?.pendingPayout ?? 0,
+        payoutDate: '',
         activeRides: activeCount,
         totalVehicles: vehicles.length,
         occupancyPercent: vehicles.isEmpty ? 0 : ((activeCount / vehicles.length) * 100),
@@ -366,52 +372,7 @@ class DashboardController extends ChangeNotifier {
     }
   }
 
-  Future<bool> startTripHandover({
-    required String tripId,
-    required String token,
-    double? hostLat,
-    double? hostLng,
-    int? odometerReading,
-    int? fuelPercent,
-  }) async {
-    try {
-      // Use the host's real location; fall back to the vehicle's saved pickup point.
-      var lat = hostLat;
-      var lng = hostLng;
-      if (lat == null || lng == null) {
-        final pos = await LocationService.currentPosition();
-        if (pos != null) {
-          lat = pos.lat;
-          lng = pos.lng;
-        } else {
-          final v = vehicles.where((x) => x.lat != null && x.lng != null);
-          if (v.isNotEmpty) {
-            lat = v.first.lat;
-            lng = v.first.lng;
-          }
-        }
-      }
-      if (lat == null || lng == null) {
-        ToastService.showError('Location unavailable. Please enable location to verify handover.');
-        return false;
-      }
-      await HostService.startHandover(
-        tripId: tripId,
-        token: token,
-        hostLat: lat,
-        hostLng: lng,
-        odometerReading: odometerReading,
-        fuelPercent: fuelPercent,
-      );
-      await load();
-      return true;
-    } catch (e) {
-      ToastService.showError('Handover failed: $e');
-      return false;
-    }
-  }
-
-  /// Direct QR Handover scan via POST /api/v1/trips/scan-handover
+  /// QR handover scan via POST /trips/scan-handover
   Future<bool> scanDirectHandover({
     required String handoverToken,
     double? hostLat,
@@ -435,20 +396,38 @@ class DashboardController extends ChangeNotifier {
       await load();
       return true;
     } catch (e) {
-      ToastService.showError('Handover scan failed: $e');
+      ToastService.showError(HostService.tripErrorMessage(e));
       return false;
     }
   }
 
   // ─────────── Trip end / cancel ───────────
+  /// Last end-trip response's `late_return` (null = on time). UI reads this to show the late fee.
+  Map<String, dynamic>? lastLateReturn;
+
+  static String _countdownLabel(DateTime start) {
+    final diff = start.toLocal().difference(DateTime.now());
+    if (diff.isNegative) return 'Due now';
+    if (diff.inDays >= 1) return 'in ${diff.inDays}d ${diff.inHours % 24}h';
+    if (diff.inHours >= 1) return 'in ${diff.inHours}h ${diff.inMinutes % 60}m';
+    return 'in ${diff.inMinutes}m';
+  }
+
   Future<bool> endTrip(String tripId) async {
+    lastLateReturn = null;
     try {
-      await HostService.endTrip(tripId);
-      ToastService.showSuccess('Trip completed. Security deposit refund triggered.');
+      final res = await HostService.endTrip(tripId);
+      final late = res['late_return'];
+      if (late is Map) {
+        lastLateReturn = Map<String, dynamic>.from(late);
+        ToastService.showWarning(late['message']?.toString() ?? 'Trip completed – late return');
+      } else {
+        ToastService.showSuccess('Trip completed.');
+      }
       await load();
       return true;
     } catch (e) {
-      ToastService.showError('Could not end trip: $e');
+      ToastService.showError(HostService.tripErrorMessage(e));
       return false;
     }
   }
@@ -460,7 +439,7 @@ class DashboardController extends ChangeNotifier {
       await load();
       return true;
     } catch (e) {
-      ToastService.showError('Could not cancel trip: $e');
+      ToastService.showError(HostService.tripErrorMessage(e));
       return false;
     }
   }

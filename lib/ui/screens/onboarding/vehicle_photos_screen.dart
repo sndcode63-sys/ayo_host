@@ -63,9 +63,9 @@ class _VehiclePhotosScreenState extends State<VehiclePhotosScreen> {
         title: 'Place AYO Plate on ${slotName ?? "Vehicle"}',
         slotName: slotName,
       );
-      if (withPlate != null) {
-        finalFile = withPlate;
-      }
+      // Exterior photos must always carry the AYO plate; cancelling the editor cancels the upload.
+      if (withPlate == null) return;
+      finalFile = withPlate;
     }
 
     if (!mounted) return;

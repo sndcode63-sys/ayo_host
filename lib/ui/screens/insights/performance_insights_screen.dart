@@ -27,11 +27,11 @@ class PerformanceInsightsScreen extends StatelessWidget {
     final activeTripsCount = dash.activeTrips.length;
     final totalTrips = upcomingCount + activeTripsCount;
 
-    // Calculate dynamic weekend price boost based on real vehicles
-    final avgDaily = totalVehicles > 0
-        ? (vehicles.fold<double>(0, (s, v) => s + v.dailyRate) / totalVehicles)
-        : 0.0;
-    final estBoost = (avgDaily * 0.20 * 8).round();
+    final String? hint = totalVehicles == 0
+        ? 'You have no vehicles listed yet. List a vehicle to start receiving bookings.'
+        : (inReviewCount > 0
+            ? '$inReviewCount of your $totalVehicles vehicle(s) are awaiting review or approval before going live.'
+            : null);
 
     return Scaffold(
       appBar: AppBar(
@@ -194,7 +194,8 @@ class PerformanceInsightsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
               ],
-            const SizedBox(height: 14),
+            if (hint != null) const SizedBox(height: 14),
+            if (hint != null)
             AppCard(
               color: AppColors.warningSoft,
               child: Row(
@@ -205,12 +206,10 @@ class PerformanceInsightsScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Pro Host Revenue Tip', style: AppText.sectionTitle.copyWith(fontSize: 12.5)),
+                        Text('Listing Status', style: AppText.sectionTitle.copyWith(fontSize: 12.5)),
                         const SizedBox(height: 2),
                         Text(
-                          totalVehicles > 0
-                              ? 'Enabling Weekend Price Boost (+20%) can increase your weekend earnings by ₹$estBoost per vehicle.'
-                              : 'List your vehicle and enable Weekend Price Boost (+20%) to optimize weekend rental returns.',
+                          hint,
                           style: AppText.body.copyWith(fontSize: 10),
                         ),
                       ],

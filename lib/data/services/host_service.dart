@@ -971,95 +971,97 @@ class HostService {
     }
   }
 
-  /// Direct Handover QR scan: `POST /api/v1/trips/scan-handover`
+  /// `POST /trips/scan-handover` — host scans the customer's QR; trip becomes ACTIVE.
+  /// Body: `handover_token` (required), `host_lat` / `host_lng` (optional, 500m proximity check).
   static Future<Map<String, dynamic>> scanHandover({
     required String handoverToken,
     double? hostLat,
     double? hostLng,
   }) async {
-    final body = {
+    final body = <String, dynamic>{
       'handover_token': handoverToken.trim(),
-      // ignore: use_null_aware_elements
-      if (hostLat != null) 'host_lat': hostLat,
-      // ignore: use_null_aware_elements
-      if (hostLng != null) 'host_lng': hostLng,
-      // ignore: use_null_aware_elements
-      if (hostLng != null) 'host_lon': hostLng,
+      if (hostLat != null && hostLng != null) 'host_lat': hostLat,
+      if (hostLat != null && hostLng != null) 'host_lng': hostLng,
     };
     try {
-      LoggerService.info('Scanning and verifying handover token directly...');
       final response = await ApiClient.instance.post(
         ApiConfig.tripScanHandover,
         data: body,
+        options: Options(
+          headers: {
+            'Idempotency-Key': ApiClient.generateUuidV4(),
+          },
+        ),
       );
-      ToastService.showSuccess('Vehicle handover verified! Trip is now ACTIVE.');
-      return (response['data'] is Map ? response['data'] : response) as Map<String, dynamic>;
+      return _unwrap(response);
     } catch (e) {
-      LoggerService.error('Direct scan handover failed', error: e);
+      LoggerService.error('Scan handover failed', error: e);
       rethrow;
     }
   }
 
-  /// Guide route `POST /trips/:id/verify-handover` (token, odometer, fuel, host location).
-  /// Falls back to legacy `/trips/:id/start-handover` if the new route 404s.
-  static Future<Map<String, dynamic>> startHandover({
-    required String tripId,
-    required String token,
-    required double hostLat,
-    required double hostLng,
-    int? odometerReading,
-    int? fuelPercent,
-  }) async {
-    final body = {
-      'token': token,
-      'handover_token': token,
-      // ignore: use_null_aware_elements
-      if (odometerReading != null) 'odometer_reading': odometerReading,
-      // ignore: use_null_aware_elements
-      if (fuelPercent != null) 'fuel_percent': fuelPercent,
-      'host_lat': hostLat,
-      'host_lng': hostLng,
-    };
-    try {
-      Map<String, dynamic> response;
-      try {
-        response = await ApiClient.instance.post(ApiConfig.tripVerifyHandover(tripId), data: body);
-      } on ApiException catch (e) {
-        if (e.statusCode != 404) rethrow;
-        response = await ApiClient.instance.post(ApiConfig.tripHandover(tripId), data: body);
-      } on DioException catch (e) {
-        if (e.response?.statusCode != 404) rethrow;
-        response = await ApiClient.instance.post(ApiConfig.tripHandover(tripId), data: body);
-      }
-      ToastService.showSuccess('Handover verified! Trip started.');
-      return (response['data'] is Map ? response['data'] : response) as Map<String, dynamic>;
-    } catch (e) {
-      LoggerService.error('Failed to verify handover', error: e);
-      rethrow;
-    }
-  }
-
-  /// `POST /trips/:id/end` — host concludes the trip, triggers deposit refund.
+  /// `POST /trips/:id/end` — empty body. Response carries `late_return`
+  /// (null when on time) with `late_hours`, `late_fee_inr`, `late_fee_paise`, `message`.
   static Future<Map<String, dynamic>> endTrip(String tripId) async {
     final res = await ApiClient.instance.post(
       ApiConfig.tripEnd(tripId),
-      options: Options(headers: {
-        'Idempotency-Key': 'end_trip_${tripId}_${DateTime.now().millisecondsSinceEpoch}',
-      }),
+      data: <String, dynamic>{},
+      options: Options(
+        headers: {
+          'Idempotency-Key': ApiClient.generateUuidV4(),
+        },
+      ),
     );
-    return (res['data'] is Map ? res['data'] : res) as Map<String, dynamic>;
+    return _unwrap(res);
   }
 
-  /// `POST /trips/:id/cancel`
+  /// `POST /trips/:id/cancel` — body `{ "reason": "..." }`.
   static Future<Map<String, dynamic>> cancelTrip(String tripId, String reason) async {
     final res = await ApiClient.instance.post(
       ApiConfig.tripCancel(tripId),
       data: {'reason': reason},
-      options: Options(headers: {
-        'Idempotency-Key': 'cancel_trip_${tripId}_${DateTime.now().millisecondsSinceEpoch}',
-      }),
+      options: Options(
+        headers: {
+          'Idempotency-Key': ApiClient.generateUuidV4(),
+        },
+      ),
     );
-    return (res['data'] is Map ? res['data'] : res) as Map<String, dynamic>;
+    return _unwrap(res);
+  }
+
+  static Map<String, dynamic> _unwrap(Map<String, dynamic> res) {
+    final d = res['data'];
+    return d is Map ? Map<String, dynamic>.from(d) : res;
+  }
+
+  /// Maps the guide's error codes to readable messages; falls back to the server message.
+  static String tripErrorMessage(Object e) {
+    String? code;
+    String? msg;
+    if (e is DioException) {
+      final d = e.response?.data;
+      if (d is Map && d['error'] is Map) {
+        code = d['error']['code']?.toString();
+        msg = d['error']['message']?.toString();
+      }
+      msg ??= e.error?.toString();
+    } else if (e is ApiException) {
+      code = e.code;
+      msg = e.message;
+    }
+    switch (code) {
+      case 'INVALID_HANDOVER_TOKEN':
+        return 'QR is invalid or expired. Ask the customer to refresh their QR.';
+      case 'TOKEN_ALREADY_USED':
+        return 'This QR has already been scanned.';
+      case 'NOT_VEHICLE_OWNER':
+        return 'This vehicle does not belong to your account.';
+      case 'HOST_TOO_FAR':
+        return 'You are more than 500m away from the vehicle. Move closer and try again.';
+      case 'INVALID_TRANSITION':
+        return 'Trip is already active or cancelled.';
+    }
+    return (msg == null || msg.isEmpty || msg == 'null') ? 'Something went wrong' : msg;
   }
 
   // ─────────── IoT lock / unlock + listing pause ───────────
@@ -1121,10 +1123,10 @@ class HostService {
   }
 
   // ─────────── Identity documents (DL front / back / selfie) ───────────
-  static Map<String, dynamic> _unwrap(Map<String, dynamic> res) {
-    final d = res['data'];
-    return d is Map<String, dynamic> ? d : res;
-  }
+  // static Map<String, dynamic> _unwrap(Map<String, dynamic> res) {
+  //   final d = res['data'];
+  //   return d is Map<String, dynamic> ? d : res;
+  // }
 
   /// [documentType]: DL_FRONT | DL_BACK | SELFIE. Returns the storage key or URL that
   /// goes into `driving_licence_front_url` / `_back_url` / `selfie_url`.

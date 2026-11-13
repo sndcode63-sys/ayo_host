@@ -61,7 +61,6 @@ class ApiConfig {
 
   // Trips & Handover
   static const String tripScanHandover = '/trips/scan-handover';
-  static String tripHandover(String tripId) => '/trips/$tripId/start-handover';
 
   // Host documents, listing fee & earnings
   static const String hostDocumentPresign = '/host/document/presign';
@@ -92,7 +91,6 @@ class ApiConfig {
   static String vehiclePhotosBatch(String id) => '/vehicles/$id/photos/batch';
   static String vehicleReviews(String id) => '/vehicles/$id/reviews';
   static String vehicleCalendar(String id) => '/vehicles/$id/calendar-availability';
-  static String tripVerifyHandover(String id) => '/trips/$id/verify-handover';
   static String tripEnd(String id) => '/trips/$id/end';
   static String tripCancel(String id) => '/trips/$id/cancel';
   static const String usersMePatch = '/users/me';
